@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 import sympy
+import scipy.stats as stats
 from math import ceil, floor, log, exp
 
 def computeCacheVolumes(kernel, cl_size, block, grid):
@@ -46,16 +47,12 @@ def computeCacheBankConflicts(kernel, bankWidth, bankCount, block, grid):
                                 if address // 16 not in L1CLs:
                                     L1CLs.append(address // 16)
                             loadCycles += max([ len(b) for b in bankLoads])
-                        cycles += max(loadCycles, ceil(len(L1CLs) / 2))
+                        cycles += max(loadCycles, ceil(len(L1CLs) / 1.5))
                             #print(max([ len(b) for b in bankLoads]))
 
     return cycles
                         
 
-
-def softmax(p):
-    return max(1, p)
-    #return 1 + (log( 1 + exp((p-1)  )))
 
 
 def predictPerformanceV1(kernel, block, grid, registers):
@@ -99,12 +96,44 @@ def predictPerformanceV1(kernel, block, grid, registers):
     print("{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal ))
     return kernel.flops * blocksPerSM * threadsPerBlock * (clock * SMcount / Ttotal )
     
+def maxOverlap(t, w, p):
+    return max(1, t * w / p)
+
+def randomOverlap(t, w, p):
+
+    utilization = 0
+    for k in range(0, w):
+        prob = stats.binom.pmf(k, w-1, t)
+        utilization += prob * ( max(1, (k+1)/p))
+        #print("{} {:4.2f} {:4.2f}".format(k, prob, max(1, (k+1)/p)))
+    #print("{} {} {} {:5.3f}".format(t, w, p, utilization))
+    return utilization
+    
+def L2Latency(wdev, payload, clock):
+    #return max(200, (payload * wdev) / 1500 * clock)
+    x = wdev * payload / 8 / 32
+    #lat = 210 + 102* log(1 + exp((x-1400)*0.00138))
+    lat = max(237, 175 + 105* log(1 + exp((x-900)*0.00140)))
+    #print("{:6.0f} {:6.0f} {:6.1f}".format(x, lat, payload / 8 / 32))
+    return lat
+
+def memLatency(wdev, payload, clock):
+    #return max(250, wdev*payload / 780 * clock)
+    x = wdev * payload / 8 / 32
+    lat = max(210, 0 + 270* log(1 + exp((x-100)*0.0017)))
+    #print("{:6.0f} {:6.0f} {:6.1f}".format(x, lat, payload / 8 / 32))
+    return lat
+    
 def predictPerformance(kernel, block, grid, registers):
 
+    
+    overlap = randomOverlap
+    
     threadsPerBlock = block[0]*block[1]*block[2]
     blocksPerSM = min( 32, int(2**16 / (threadsPerBlock * max(registers, 32)) ))
     warpsPerSM = blocksPerSM * ((threadsPerBlock-1) // 32 + 1)
     warpsPerBlock = ceil(threadsPerBlock / 32)
+    warpsPerQuadrant = ceil(warpsPerSM / 4)
     
     SMcount = 80 
     clock = 1.38    
@@ -115,11 +144,11 @@ def predictPerformance(kernel, block, grid, registers):
     L2CLs += threadsPerBlock / 4
     L1LoadCycles = computeCacheBankConflicts(kernel, 8, 16, block, grid) / warpsPerBlock
 
-    Tint = 40 * 5 * max(1, warpsPerSM / 12)
+    Tint = 40 * 4 * max(1, warpsPerSM / 8)
     TL1thru = (L1LoadCycles * blocksPerSM) 
-    TDP  = kernel.flops * max(1, (warpsPerSM / 8))  * 8
-    Tlat_mem = (max(250,  (warpsPerSM*32*16 * SMcount ) / 780 * clock ) if kernel.bytes > 0 else 0)
-    Tlat_L2 = (max(200,  (L2CLs * blocksPerSM * SMcount * cl_size ) / 1500 * clock ) if kernel.bytes > 0 else 0)
+    TDP  = kernel.flops * max(1, (warpsPerQuadrant / 8))  * 8
+    Tlat_mem = memLatency(warpsPerSM * SMcount, 16 * 32, clock) if kernel.bytes > 0 else 0
+    Tlat_L2 = L2Latency(warpsPerSM * SMcount, L2CLs / warpsPerBlock * cl_size, clock) if kernel.bytes > 0 else 0
     Tblocksched = SMcount / 0.5  * blocksPerSM  
     Ttotal = Tblocksched + Tint + max(TDP, TL1thru) + Tlat_mem + Tlat_L2
     print("Tblocksched  Tint TL1thru   TDP Tlat_mem Tlat_L2 Ttotal")
@@ -127,11 +156,11 @@ def predictPerformance(kernel, block, grid, registers):
     
     delta = 100
     for i in range(0, 200):
-        Tint = 40 * 5 * softmax(Tint / Ttotal * warpsPerSM / 12)
-        TL1thru = L1LoadCycles  * softmax(TL1thru / Ttotal * warpsPerSM)
-        TDP  = kernel.flops * softmax(warpsPerSM * (TDP / Ttotal) / 8)  * 8 
-        Tlat_mem = max(271, Tlat_mem / Ttotal  * (warpsPerSM*32*16 * SMcount ) / 780 * clock) if kernel.bytes > 0 else 0 
-        Tlat_L2 = (max(200,  Tlat_L2 / Ttotal  * (L2CLs * blocksPerSM * SMcount * cl_size ) / 1500 * clock ) if kernel.bytes > 0 else 0)
+        Tint = 40 * 4 * overlap(Tint / Ttotal, warpsPerSM, 8)
+        TL1thru = L1LoadCycles  * overlap(TL1thru / Ttotal, warpsPerSM, 1)
+        TDP  = kernel.flops * 8 * overlap(TDP / Ttotal, warpsPerQuadrant, 2) 
+        Tlat_mem = memLatency(Tlat_mem / Ttotal * warpsPerSM * SMcount, 16 * 32, clock) if kernel.bytes > 0 else 0
+        Tlat_L2 = L2Latency(Tlat_L2 / Ttotal * warpsPerSM * SMcount, L2CLs / warpsPerBlock * cl_size, clock) if kernel.bytes > 0 else 0 
         new_Ttotal = Tblocksched + Tint + max(TDP,  TL1thru) + Tlat_mem + Tlat_L2
         delta = abs(new_Ttotal - Ttotal)
         Ttotal = new_Ttotal
