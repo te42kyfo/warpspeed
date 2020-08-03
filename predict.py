@@ -81,6 +81,7 @@ def computeCacheVolumes(fields, cl_size, block, grid):
     )
     xthreads = np.arange(0, warpDim[0])
     ythreads = np.arange(0, warpDim[1])
+    zthreads = np.arange(0, warpDim[2])
 
     for field in fields:
         for address_lambda in fields[field]:
@@ -90,7 +91,12 @@ def computeCacheVolumes(fields, cl_size, block, grid):
                         for blockx in range(0, block[0], warpDim[0]):
                             result = (
                                 address_lambda(
-                                    xblock, yblock, xthreads[:, None], ythreads[None, :]
+                                    blockx,
+                                    blocky,
+                                    blockz,
+                                    xthreads[:, None],
+                                    ythreads[None, :],
+                                    1,
                                 )
                                 * 8
                                 / cl_size
@@ -159,6 +165,80 @@ def predictPerformanceV1(kernel, block, grid, registers):
     clock = 1.38
     cl_size = 32
 
+    L2CLs, L1CLs = computeCacheVolumes(kernel.genAddresses()["B"], cl_size, block, grid)
+
+    L2CLs += threadsPerBlock / 4
+    L1LoadCycles = sum([len(ld) for ld in L1CLs]) / 4 / warpsPerBlock
+
+    Tint = 40 * 5 * max(1, warpsPerSM / 12)
+    TL1thru = L1LoadCycles * warpsPerSM
+    TDP = kernel.flops * max(1, (warpsPerSM / 8)) * 8
+    Tlat_mem = (
+        max(271, (warpsPerSM * 32 * 16 * SMcount) / 780 * clock)
+        if kernel.bytes > 0
+        else 0
+    )
+    Tlat_L2 = (
+        max(200, (L2CLs * blocksPerSM * SMcount * cl_size) / 2000 * clock)
+        if kernel.bytes > 0
+        else 0
+    )
+    Ttotal = Tint + max(TDP, TL1thru) + Tlat_mem + Tlat_L2
+    print(" Tint  TL1thru   TDP  Tlat_mem  Tlat_L2  Ttotal")
+    print(
+        "{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(
+            Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
+        )
+    )
+
+    delta = 100
+    for i in range(0, 200):
+        Tint = 40 * 5 * max(1, Tint / Ttotal * warpsPerSM / 12)
+        TL1thru = L1LoadCycles * max(1, TL1thru / Ttotal * warpsPerSM)
+        TDP = kernel.flops * max(1, warpsPerSM * (TDP / Ttotal) / 8) * 8
+        Tlat_mem = (
+            max(271, Tlat_mem / Ttotal * (warpsPerSM * 32 * 16 * SMcount) / 780 * clock)
+            if kernel.bytes > 0
+            else 0
+        )
+        Tlat_L2 = (
+            max(
+                200,
+                Tlat_L2
+                / Ttotal
+                * (L2CLs * blocksPerSM * SMcount * cl_size)
+                / 2000
+                * clock,
+            )
+            if kernel.bytes > 0
+            else 0
+        )
+        new_Ttotal = Tint + max(TDP, TL1thru) + Tlat_mem + Tlat_L2
+        delta = abs(new_Ttotal - Ttotal)
+        Ttotal = new_Ttotal
+
+        if i > 100 and delta < 0.01:
+            break
+
+    print(
+        "{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(
+            Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
+        )
+    )
+    return kernel.flops * blocksPerSM * threadsPerBlock * (clock * SMcount / Ttotal)
+
+
+def predictPerformanceV1_1(kernel, block, grid, registers):
+
+    threadsPerBlock = block[0] * block[1] * block[2]
+    blocksPerSM = min(32, int(2 ** 16 / (threadsPerBlock * max(registers, 32))))
+    warpsPerSM = blocksPerSM * ((threadsPerBlock - 1) // 32 + 1)
+    warpsPerBlock = ceil(threadsPerBlock / 32)
+
+    SMcount = 80
+    clock = 1.38
+    cl_size = 32
+
     L2CLsVisitor = CL32Visitor()
     L1CLsVisitor = CL32Visitor()
 
@@ -171,16 +251,10 @@ def predictPerformanceV1(kernel, block, grid, registers):
     )
 
     L2CLs = L2CLsVisitor.CLs / grid[0] / grid[1] / grid[2]
-    L1CLs = L1ClsVisitor.Cls / grid[0] / grid[1] / grid[2]
-    print(L1CLs)
-    print(L2CLs)
-
-    L2CLs, L1CLs = computeCacheVolumes(kernel.genAddresses(), cl_size, block, grid)
-    print(L1CLs)
-    print(L2CLs)
+    L1CLs = L1CLsVisitor.CLs / grid[0] / grid[1] / grid[2]
 
     L2CLs += threadsPerBlock / 4
-    L1LoadCycles = sum([len(ld) for ld in L1CLs]) / 4 / warpsPerBlock
+    L1LoadCycles = L1Cls / 4 / warpsPerBlock
 
     Tint = 40 * 5 * max(1, warpsPerSM / 12)
     TL1thru = L1LoadCycles * warpsPerSM
