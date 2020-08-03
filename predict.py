@@ -6,21 +6,31 @@ from math import ceil, floor, log, exp
 
 
 class printingVisitor:
-    def __init__(self):
-        self.cycles = 0
-
     def count(self, addresses):
         print(addresses)
+
+
+class noneVisitor:
+    def count(self, addresses):
+        pass
+
+
+class CL32Visitor:
+    def __init__(self):
+        self.CLs = 0
+
+    def count(self, addresses):
+        self.CLs += len(set([a // 4 for a in addresses]))
 
 
 def gridIteration(
     fields,
     block,
     grid,
-    halfWarpVisitor=None,
-    warpVisitor=None,
-    tbVisitor=None,
-    gridVisitor=None,
+    halfWarpVisitor=noneVisitor(),
+    tbVisitor=noneVisitor(),
+    warpVisitor=noneVisitor(),
+    gridVisitor=noneVisitor(),
 ):
 
     blockCoords = (
@@ -30,17 +40,35 @@ def gridIteration(
         for x in range(grid[0])
     )
 
+    bdims = sympy.symbols("blockDim.x blockDim.y, blockDim.z")
+    indexingSymbols = sympy.symbols(
+        "threadIdx.x, threadIdx.y, threadIdx.z, blockIdx.x, blockIdx.y, blockIdx.z"
+    )
     for field in fields:
+        gridAddresses = set()
         for blockIdx in blockCoords:
-            for warpId in range(0, block[0] * block[1] * block[2], 32):
-                for address in fields[field]:
-                    for halfWarp in range(0,32,16):
-                        warpLanes = warpId + halfWarp + np.arange(0,16)
+            blockAddresses = set()
+            for address in fields[field]:
+                addressLambda = sympy.lambdify(
+                    indexingSymbols, address.subs(zip(bdims, block))
+                )
+                for warpId in range(0, block[0] * block[1] * block[2], 32):
+                    warpAddresses = set()
+                    for halfWarp in range(0, 32, 16):
+                        warpLanes = warpId + halfWarp + np.arange(0, 16)
                         warpX = warpLanes % block[0]
                         warpY = warpLanes // block[0] % block[1]
                         warpZ = warpLanes // block[0] // block[1]
-
-                        print(address(warpX, warpY, warpZ, *blockCoords))
+                        halfWarpAddresses = addressLambda(
+                            warpX, warpY, warpZ, *blockIdx
+                        )
+                        halfWarpVisitor.count(halfWarpAddresses)
+                        warpAddresses.update(halfWarpAddresses)
+                    warpVisitor.count(warpAddresses)
+                    blockAddresses.update(warpAddresses)
+            tbVisitor.count(blockAddresses)
+            gridAddresses.update(blockAddresses)
+        gridVisitor.count(gridAddresses)
 
 
 def computeCacheVolumes(fields, cl_size, block, grid):
@@ -130,7 +158,26 @@ def predictPerformanceV1(kernel, block, grid, registers):
     SMcount = 80
     clock = 1.38
     cl_size = 32
+
+    L2CLsVisitor = CL32Visitor()
+    L1CLsVisitor = CL32Visitor()
+
+    gridIteration(
+        kernel.genAddresses(),
+        block,
+        grid,
+        blockVisitor=L2CLsVisitor,
+        warpVisitor=L1CLsVisitor,
+    )
+
+    L2CLs = L2CLsVisitor.CLs / grid[0] / grid[1] / grid[2]
+    L1CLs = L1ClsVisitor.Cls / grid[0] / grid[1] / grid[2]
+    print(L1CLs)
+    print(L2CLs)
+
     L2CLs, L1CLs = computeCacheVolumes(kernel.genAddresses(), cl_size, block, grid)
+    print(L1CLs)
+    print(L2CLs)
 
     L2CLs += threadsPerBlock / 4
     L1LoadCycles = sum([len(ld) for ld in L1CLs]) / 4 / warpsPerBlock
