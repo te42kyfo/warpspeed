@@ -23,6 +23,19 @@ class CL32Visitor:
         self.CLs += len(set([a // 4 for a in addresses]))
 
 
+class L1thruVisitor:
+    def __init__(self):
+        self.cycles = 0
+
+    def count(self, addresses):
+        banks = [0] * 16
+        maxCycles = 0
+        for a in addresses:
+            banks[a % 16] += 1
+            maxCycles = max(maxCycles, banks[a % 16])
+        self.cycles += maxCycles
+
+
 def gridIteration(
     fields,
     block,
@@ -33,25 +46,22 @@ def gridIteration(
     gridVisitor=noneVisitor(),
 ):
 
-    blockCoords = (
-        (x, y, z)
-        for z in range(grid[2])
-        for y in range(grid[1])
-        for x in range(grid[0])
-    )
-
     bdims = sympy.symbols("blockDim.x blockDim.y, blockDim.z")
     indexingSymbols = sympy.symbols(
         "threadIdx.x, threadIdx.y, threadIdx.z, blockIdx.x, blockIdx.y, blockIdx.z"
     )
+
     for field in fields:
+        addressLambdas = [
+            sympy.lambdify(indexingSymbols, address.subs(zip(bdims, block)))
+            for address in fields[field]
+        ]
+
         gridAddresses = set()
-        for blockIdx in blockCoords:
+
+        for gridX, gridY, gridZ in np.ndindex(grid):
             blockAddresses = set()
-            for address in fields[field]:
-                addressLambda = sympy.lambdify(
-                    indexingSymbols, address.subs(zip(bdims, block))
-                )
+            for addressLambda in addressLambdas:
                 for warpId in range(0, block[0] * block[1] * block[2], 32):
                     warpAddresses = set()
                     for halfWarp in range(0, 32, 16):
@@ -60,7 +70,7 @@ def gridIteration(
                         warpY = warpLanes // block[0] % block[1]
                         warpZ = warpLanes // block[0] // block[1]
                         halfWarpAddresses = addressLambda(
-                            warpX, warpY, warpZ, *blockIdx
+                            warpX, warpY, warpZ, gridX, gridY, gridZ
                         )
                         halfWarpVisitor.count(halfWarpAddresses)
                         warpAddresses.update(halfWarpAddresses)
@@ -71,164 +81,7 @@ def gridIteration(
         gridVisitor.count(gridAddresses)
 
 
-def computeCacheVolumes(fields, cl_size, block, grid):
-    loadWidths = []
-    totalCLs = set()
-    warpDim = (
-        min(block[0], 32),
-        min(block[1], max(1, 32 // block[0])),
-        min(block[2], max(1, 32 // (block[0] * block[1]))),
-    )
-    xthreads = np.arange(0, warpDim[0])
-    ythreads = np.arange(0, warpDim[1])
-    zthreads = np.arange(0, warpDim[2])
-
-    for field in fields:
-        for address_lambda in fields[field]:
-            for gridx, gridy, gridz in np.ndindex(grid):
-                for blockz in range(0, block[2], warpDim[2]):
-                    for blocky in range(0, block[1], warpDim[1]):
-                        for blockx in range(0, block[0], warpDim[0]):
-                            result = (
-                                address_lambda(
-                                    blockx,
-                                    blocky,
-                                    blockz,
-                                    xthreads[:, None],
-                                    ythreads[None, :],
-                                    1,
-                                )
-                                * 8
-                                / cl_size
-                            )
-                            affectedCLs = set(result.ravel().astype(int))
-                            loadWidths.append(affectedCLs)
-                            totalCLs.update(affectedCLs)
-
-    return (len(set(totalCLs)), loadWidths)
-
-
-def computeCacheBankConflicts(kernel, bankWidth, bankCount, block, grid):
-    warpDim = (
-        min(block[0], 32),
-        min(block[1], max(1, 32 // block[0])),
-        min(block[2], max(1, 32 // (block[0] * block[1]))),
-    )
-    cycles = 0
-    for expr in kernel.genAddresses():
-        exprfn = sympy.lambdify(
-            sympy.symbols("tidx, tidy, tidz, w"),
-            (sympy.symbols("w") * 100 + expr[1]) * 8 / bankWidth,
-        )
-        for gridx, gridy, gridz in np.ndindex(grid):
-            for blockz in range(0, block[2], warpDim[2]):
-                for blocky in range(0, block[1], warpDim[1]):
-                    for blockx in range(0, block[0], warpDim[0]):
-                        loadCycles = 0
-                        L1CLs = []
-                        for half in range(0, 2):
-                            bankLoads = [
-                                [] for i in range(warpDim[0] * warpDim[1] * warpDim[2])
-                            ]
-                            for warpLane in range(half * 16, (half + 1) * 16):
-                                tidx = warpLane % warpDim[0]
-                                tidy = (warpLane // warpDim[0]) % warpDim[1]
-                                tidz = warpLane // warpDim[0] // warpDim[1]
-                                address = int(
-                                    exprfn(
-                                        tidx + blockx,
-                                        tidy + blocky,
-                                        tidz + blockz,
-                                        15000,
-                                    )
-                                )
-                                bank = (address) % bankCount
-                                if address not in bankLoads[bank]:
-                                    bankLoads[bank].append(address)
-                                if address // 16 not in L1CLs:
-                                    L1CLs.append(address // 16)
-                            loadCycles += max([len(b) for b in bankLoads])
-                        cycles += max(loadCycles, ceil(len(L1CLs) / 1.5))
-                        # print(max([ len(b) for b in bankLoads]))
-
-    return cycles
-
-
 def predictPerformanceV1(kernel, block, grid, registers):
-
-    threadsPerBlock = block[0] * block[1] * block[2]
-    blocksPerSM = min(32, int(2 ** 16 / (threadsPerBlock * max(registers, 32))))
-    warpsPerSM = blocksPerSM * ((threadsPerBlock - 1) // 32 + 1)
-    warpsPerBlock = ceil(threadsPerBlock / 32)
-
-    SMcount = 80
-    clock = 1.38
-    cl_size = 32
-
-    L2CLs, L1CLs = computeCacheVolumes(kernel.genAddresses()["B"], cl_size, block, grid)
-
-    L2CLs += threadsPerBlock / 4
-    L1LoadCycles = sum([len(ld) for ld in L1CLs]) / 4 / warpsPerBlock
-
-    Tint = 40 * 5 * max(1, warpsPerSM / 12)
-    TL1thru = L1LoadCycles * warpsPerSM
-    TDP = kernel.flops * max(1, (warpsPerSM / 8)) * 8
-    Tlat_mem = (
-        max(271, (warpsPerSM * 32 * 16 * SMcount) / 780 * clock)
-        if kernel.bytes > 0
-        else 0
-    )
-    Tlat_L2 = (
-        max(200, (L2CLs * blocksPerSM * SMcount * cl_size) / 2000 * clock)
-        if kernel.bytes > 0
-        else 0
-    )
-    Ttotal = Tint + max(TDP, TL1thru) + Tlat_mem + Tlat_L2
-    print(" Tint  TL1thru   TDP  Tlat_mem  Tlat_L2  Ttotal")
-    print(
-        "{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(
-            Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
-        )
-    )
-
-    delta = 100
-    for i in range(0, 200):
-        Tint = 40 * 5 * max(1, Tint / Ttotal * warpsPerSM / 12)
-        TL1thru = L1LoadCycles * max(1, TL1thru / Ttotal * warpsPerSM)
-        TDP = kernel.flops * max(1, warpsPerSM * (TDP / Ttotal) / 8) * 8
-        Tlat_mem = (
-            max(271, Tlat_mem / Ttotal * (warpsPerSM * 32 * 16 * SMcount) / 780 * clock)
-            if kernel.bytes > 0
-            else 0
-        )
-        Tlat_L2 = (
-            max(
-                200,
-                Tlat_L2
-                / Ttotal
-                * (L2CLs * blocksPerSM * SMcount * cl_size)
-                / 2000
-                * clock,
-            )
-            if kernel.bytes > 0
-            else 0
-        )
-        new_Ttotal = Tint + max(TDP, TL1thru) + Tlat_mem + Tlat_L2
-        delta = abs(new_Ttotal - Ttotal)
-        Ttotal = new_Ttotal
-
-        if i > 100 and delta < 0.01:
-            break
-
-    print(
-        "{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(
-            Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
-        )
-    )
-    return kernel.flops * blocksPerSM * threadsPerBlock * (clock * SMcount / Ttotal)
-
-
-def predictPerformanceV1_1(kernel, block, grid, registers):
 
     threadsPerBlock = block[0] * block[1] * block[2]
     blocksPerSM = min(32, int(2 ** 16 / (threadsPerBlock * max(registers, 32))))
@@ -246,7 +99,7 @@ def predictPerformanceV1_1(kernel, block, grid, registers):
         kernel.genAddresses(),
         block,
         grid,
-        blockVisitor=L2CLsVisitor,
+        tbVisitor=L2CLsVisitor,
         warpVisitor=L1CLsVisitor,
     )
 
@@ -254,7 +107,7 @@ def predictPerformanceV1_1(kernel, block, grid, registers):
     L1CLs = L1CLsVisitor.CLs / grid[0] / grid[1] / grid[2]
 
     L2CLs += threadsPerBlock / 4
-    L1LoadCycles = L1Cls / 4 / warpsPerBlock
+    L1LoadCycles = L1CLs / 4 / warpsPerBlock
 
     Tint = 40 * 5 * max(1, warpsPerSM / 12)
     TL1thru = L1LoadCycles * warpsPerSM
@@ -346,10 +199,7 @@ def memLatency(wdev, payload, clock):
     return lat
 
 
-def predictPerformance(kernel, block, grid, registers):
-
-    overlap = randomOverlap
-
+def predictPerformance(kernel, block, grid, registers, overlap=randomOverlap):
     threadsPerBlock = block[0] * block[1] * block[2]
     blocksPerSM = min(32, int(2 ** 16 / (threadsPerBlock * max(registers, 32))))
     warpsPerSM = blocksPerSM * ((threadsPerBlock - 1) // 32 + 1)
@@ -360,10 +210,26 @@ def predictPerformance(kernel, block, grid, registers):
     clock = 1.38
     cl_size = 32
     blockShedRate = 0.46
-    L2CLs, L1CLs = computeCacheVolumes(kernel.genAddresses(), cl_size, block, grid)
+
+    L2CLsVisitor = CL32Visitor()
+    L1Visitor = L1thruVisitor()
+
+    gridIteration(
+        kernel.genAddresses(),
+        block,
+        grid,
+        tbVisitor=L2CLsVisitor,
+        halfWarpVisitor=L1Visitor,
+    )
+
+    L2CLs = L2CLsVisitor.CLs / grid[0] / grid[1] / grid[2]
 
     L2CLs += threadsPerBlock / 4
-    L1LoadCycles = computeCacheBankConflicts(kernel, 8, 16, block, grid) / warpsPerBlock
+
+    print(L1Visitor.cycles)
+    print(L1Visitor.cycles / grid[0] / grid[1] / grid[2] / warpsPerBlock)
+
+    L1LoadCycles = L1Visitor.cycles / grid[0] / grid[1] / grid[2] / warpsPerBlock
 
     Tint = 40 * 4 * max(1, warpsPerSM / 8)
     TL1thru = L1LoadCycles * blocksPerSM
