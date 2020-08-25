@@ -46,22 +46,12 @@ def gridIteration(
     gridVisitor=noneVisitor(),
 ):
 
-    bdims = sympy.symbols("blockDim.x blockDim.y, blockDim.z")
-    indexingSymbols = sympy.symbols(
-        "threadIdx.x, threadIdx.y, threadIdx.z, blockIdx.x, blockIdx.y, blockIdx.z"
-    )
-
     for field in fields:
-        addressLambdas = [
-            sympy.lambdify(indexingSymbols, address.subs(zip(bdims, block)))
-            for address in fields[field]
-        ]
-
         gridAddresses = set()
 
-        for gridX, gridY, gridZ in np.ndindex(grid):
+        for blockId in np.ndindex(grid):
             blockAddresses = set()
-            for addressLambda in addressLambdas:
+            for addressLambda in fields[field]:
                 for warpId in range(0, block[0] * block[1] * block[2], 32):
                     warpAddresses = set()
                     for halfWarp in range(0, 32, 16):
@@ -70,7 +60,7 @@ def gridIteration(
                         warpY = warpLanes // block[0] % block[1]
                         warpZ = warpLanes // block[0] // block[1]
                         halfWarpAddresses = addressLambda(
-                            warpX, warpY, warpZ, gridX, gridY, gridZ
+                            warpX, warpY, warpZ, *blockId, *block
                         )
                         halfWarpVisitor.count(halfWarpAddresses)
                         warpAddresses.update(halfWarpAddresses)
@@ -199,9 +189,9 @@ def memLatency(wdev, payload, clock):
     return lat
 
 
-def predictPerformance(kernel, block, grid, registers, overlap=randomOverlap):
+def predictPerformance(kernel, block, grid, overlap=randomOverlap):
     threadsPerBlock = block[0] * block[1] * block[2]
-    blocksPerSM = min(32, int(2 ** 16 / (threadsPerBlock * max(registers, 32))))
+    blocksPerSM = min(32, int(2 ** 16 / (threadsPerBlock * max(kernel.registers, 32))))
     warpsPerSM = blocksPerSM * ((threadsPerBlock - 1) // 32 + 1)
     warpsPerBlock = ceil(threadsPerBlock / 32)
     warpsPerQuadrant = ceil(warpsPerSM / 4)
@@ -226,10 +216,10 @@ def predictPerformance(kernel, block, grid, registers, overlap=randomOverlap):
 
     L2CLs += threadsPerBlock / 4
 
-    print(L1Visitor.cycles)
-    print(L1Visitor.cycles / grid[0] / grid[1] / grid[2] / warpsPerBlock)
-
     L1LoadCycles = L1Visitor.cycles / grid[0] / grid[1] / grid[2] / warpsPerBlock
+
+    print(L2CLs / threadsPerBlock * 32)
+    print(L1LoadCycles)
 
     Tint = 40 * 4 * max(1, warpsPerSM / 8)
     TL1thru = L1LoadCycles * blocksPerSM
@@ -282,4 +272,4 @@ def predictPerformance(kernel, block, grid, registers, overlap=randomOverlap):
             Tblocksched, Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
         )
     )
-    return kernel.flops * blocksPerSM * threadsPerBlock * (clock * SMcount / Ttotal)
+    return blocksPerSM * threadsPerBlock * (clock * SMcount / Ttotal)
