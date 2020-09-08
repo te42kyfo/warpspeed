@@ -69,8 +69,8 @@ def getL2StoreBlockVolume(block, grid, storeAddresses):
     outerSize = tuple(grid[i] * block[i] // warp[i] for i in range(0, 3))
 
     seperatedFieldAccesses = dict()
-    for field in loadStoreAddresses:
-        for address in loadStoreAddresses[field]:
+    for field in storeAddresses:
+        for address in storeAddresses[field]:
             seperatedFieldAccesses[address] = [address]
 
     visitor = CL32Visitor()
