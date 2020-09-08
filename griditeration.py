@@ -18,7 +18,7 @@ class CL32Visitor:
         self.CLs = 0
 
     def count(self, addresses):
-        self.CLs += np.unique( addresses // 4 ).size
+        self.CLs += np.unique(addresses // 4).size
 
 
 class L1thruVisitor:
@@ -47,7 +47,9 @@ def gridIteration(fields, innerSize, outerSize, visitor):
         for outerId in np.ndindex(outerSize):
             addresses = np.empty(0)
             for addressLambda in fields[field]:
-                addresses = np.concatenate(( addresses, addressLambda(x, y, z, *outerId, *innerSize).ravel()))
+                addresses = np.concatenate(
+                    (addresses, addressLambda(x, y, z, *outerId, *innerSize).ravel())
+                )
             visitor.count(addresses)
 
 
@@ -64,11 +66,17 @@ def getL2StoreBlockVolume(block, grid, storeAddresses):
         min(block[2], max(1, 32 // block[0] // block[1])),
     )
 
-    outerSize = tuple(grid[i] * block[i] // warp[i] for i in range(0,3))
+    outerSize = tuple(grid[i] * block[i] // warp[i] for i in range(0, 3))
+
+    seperatedFieldAccesses = dict()
+    for field in loadStoreAddresses:
+        for address in loadStoreAddresses[field]:
+            seperatedFieldAccesses[address] = [address]
 
     visitor = CL32Visitor()
-    gridIteration(storeAddresses, warp, outerSize, visitor)
-    return visitor.CLs * 32 / grid[0] / grid[1] / grid[2]
+    gridIteration(seperatedFieldAccesses, warp, outerSize, visitor)
+    return visitor.CLs * 32 / grid[0] / grid[1] / grid[2] * 2
+
 
 def getL1Cycles(block, grid, loadStoreAddresses):
 
@@ -77,19 +85,25 @@ def getL1Cycles(block, grid, loadStoreAddresses):
         min(block[1], max(1, 16 // block[0])),
         min(block[2], max(1, 16 // block[0] // block[1])),
     )
-
-    outerSize = tuple(grid[i] * block[i] // halfWarp[i] for i in range(0,3))
-
+    outerSize = tuple(grid[i] * block[i] // halfWarp[i] for i in range(0, 3))
     visitor = L1thruVisitor()
-    gridIteration(loadStoreAddresses, halfWarp, outerSize, visitor)
+
+    seperatedFieldAccesses = dict()
+    for field in loadStoreAddresses:
+        for address in loadStoreAddresses[field]:
+            seperatedFieldAccesses[address] = [address]
+
+    gridIteration(seperatedFieldAccesses, halfWarp, outerSize, visitor)
+
     return visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2] * 2
+
 
 def getMemLoadBlockVolume(block, grid, loadAddresses):
     visitor = CL32Visitor()
 
     innerSize = tuple(block[i] * grid[i] for i in range(3))
 
-    gridIteration(loadAddresses, innerSize, (1,1,1), visitor)
+    gridIteration(loadAddresses, innerSize, (1, 1, 1), visitor)
     return visitor.CLs * 32 / grid[0] / grid[1] / grid[2]
 
 
@@ -98,5 +112,5 @@ def getMemStoreBlockVolume(block, grid, loadAddresses):
 
     innerSize = tuple(block[i] * grid[i] for i in range(3))
 
-    gridIteration(loadAddresses, innerSize, (1,1,1), visitor)
+    gridIteration(loadAddresses, innerSize, (1, 1, 1), visitor)
     return visitor.CLs * 32 / grid[0] / grid[1] / grid[2]
