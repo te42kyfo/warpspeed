@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import numpy as np
 import sympy
-import scipy.stats as stats
+
+# import scipy.stats as stats
 from math import ceil, floor, log, exp
 
 from griditeration import *
+from volumes_isl import *
 
 
 def predictPerformanceV1(kernel, block, grid, registers):
@@ -98,7 +100,7 @@ def maxOverlap(t, w, p):
 
 
 def randomOverlap(t, w, p):
-
+    pass
     utilization = 0
     for k in range(0, w):
         prob = stats.binom.pmf(k, w - 1, t)
@@ -127,14 +129,20 @@ def memLatency(wdev, payload, clock):
 
 def getConcurrentGrid(concurrentBlocks, grid):
     concurrentGrid = [0, 0, 0]
-    concurrentGrid[0] = min(grid[0], concurrentBlocks)
-    concurrentGrid[1] = min(grid[1], (concurrentBlocks - 1) // grid[0] + 1)
-    concurrentGrid[2] = min(grid[2], (concurrentBlocks - 1) // grid[0] // grid[1] + 1)
+    concurrentGrid[0] = min(grid[0], max(1, concurrentBlocks))
+    concurrentGrid[1] = min(grid[1], max(1, concurrentBlocks // grid[0]))
+    concurrentGrid[2] = min(grid[2], max(1, concurrentBlocks // grid[0] // grid[1]))
     return tuple(concurrentGrid)
 
 
 def getBlocksPerSM(block, registers):
-    return min(32, int(2 ** 16 / (block[0] * block[1] * block[2] * max(registers, 32))))
+    return min(
+        32,
+        int(
+            2 ** 16
+            / (block[0] * block[1] * block[2] * ((max(registers, 32) - 1) // 8 + 1) * 8)
+        ),
+    )
 
 
 def predictPerformance(kernel, block, grid, overlap=randomOverlap):
@@ -147,40 +155,43 @@ def predictPerformance(kernel, block, grid, overlap=randomOverlap):
     SMcount = 80
     clock = 1.38
     cl_size = 32
-    blockShedRate = 0.46
 
     concurrentGrid = getConcurrentGrid(SMcount * blocksPerSM, grid)
     truncatedConcurrentGrid = tuple(min(4, c) for c in concurrentGrid)
 
-    print(grid)
-    print(block)
-    print(concurrentGrid)
-    print(truncatedConcurrentGrid)
-
     L2LoadBlockVolume = getL2LoadBlockVolume(
         block, truncatedConcurrentGrid, kernel.genLoads()
     )
-    print(L2LoadBlockVolume / warpsPerBlock / 32)
+
     L2StoreBlockVolume = getL2StoreBlockVolume(
         block, truncatedConcurrentGrid, kernel.genStores()
     )
-    print(L2StoreBlockVolume / warpsPerBlock / 32)
     L2WarpVolume = (L2LoadBlockVolume + L2StoreBlockVolume) / warpsPerBlock
     L1Cycles = getL1Cycles(
         block, (1, 1, 1), {**kernel.genStores(), **kernel.genLoads()}
     )
-    print("{} cycles".format(L1Cycles))
-    memLoadBlockVolume = getMemLoadBlockVolume(block, concurrentGrid, kernel.genLoads())
-    print(memLoadBlockVolume / warpsPerBlock / 32)
+    memLoadBlockVolume = getMemLoadBlockVolumeISL(
+        block, concurrentGrid, grid, kernel.genLoadExprs()
+    )
     memStoreBlockVolume = getMemStoreBlockVolume(
         block, concurrentGrid, kernel.genStores()
     )
-    print(memStoreBlockVolume / warpsPerBlock / 32)
     memWarpVolume = (memLoadBlockVolume + memStoreBlockVolume) / warpsPerBlock
+
+    print(
+        "{:5.1f} {:5.1f}  {:5.1f}  {:5.1f}  {:5.1f} {:5.1f}".format(
+            memLoadBlockVolume / threadsPerBlock,
+            memStoreBlockVolume / threadsPerBlock,
+            L2LoadBlockVolume / threadsPerBlock,
+            L2StoreBlockVolume / threadsPerBlock,
+            L1Cycles,
+            kernel.flops,
+        )
+    )
 
     Tint = 30 * 4 * max(1, warpsPerSM / 8)
     TL1thru = L1Cycles * warpsPerBlock * blocksPerSM
-    TDP = kernel.flops * max(1, (warpsPerQuadrant / 8)) * 8
+    TDP = kernel.flops * max(1, (warpsPerQuadrant / 2)) * 8
     Tlat_mem = memLatency(warpsPerSM * SMcount, memWarpVolume, clock)
     Tlat_L2 = L2Latency(warpsPerSM * SMcount, L2WarpVolume, clock)
     Tblocksched = SMcount / 0.5 * blocksPerSM
