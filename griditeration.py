@@ -2,6 +2,9 @@
 
 import numpy as np
 
+from functools import partial, reduce
+from operator import mul
+
 import predict
 from volumes_isl import getMemLoadBlockVolumeISL
 
@@ -24,6 +27,21 @@ class CL32Visitor:
         self.CLs += np.unique(addresses // 4).size
 
 
+class CL64Visitor:
+    def __init__(self):
+        self.CLs = 0
+
+    def count(self, addresses):
+        self.CLs += np.unique(addresses // 8).size
+
+
+class CL128Visitor:
+    def __init__(self):
+        self.CLs = 0
+
+    def count(self, addresses):
+        self.CLs += np.unique(addresses // 16).size
+
 class L1thruVisitor:
     def __init__(self):
         self.cycles = 0
@@ -41,9 +59,9 @@ class L1thruVisitor:
 
 def gridIteration(fields, innerSize, outerSize, visitor):
 
-    idx = np.arange(32, innerSize[0] + 32, dtype=np.int32)
-    idy = np.arange(32, innerSize[1] + 32, dtype=np.int32)
-    idz = np.arange(32, innerSize[2] + 32, dtype=np.int32)
+    idx = np.arange(32, innerSize[0]+32, dtype=np.int32)
+    idy = np.arange(32, innerSize[1]+32, dtype=np.int32)
+    idz = np.arange(32, innerSize[2]+32, dtype=np.int32)
     x, y, z = np.meshgrid(idx, idy, idz)
 
     for field in fields:
@@ -60,6 +78,20 @@ def getL2LoadBlockVolume(block, grid, loadAddresses):
     visitor = CL32Visitor()
     gridIteration(loadAddresses, block, grid, visitor)
     return visitor.CLs * 32 / grid[0] / grid[1] / grid[2]
+
+def getL1AllocatedLoadBlockVolume(block, grid, loadAddresses):
+    visitor = CL128Visitor()
+    gridIteration(loadAddresses, block, grid, visitor)
+    return visitor.CLs * 128 / grid[0] / grid[1] / grid[2]
+
+def getL1WarpLoadVolume(block, loadAddresses):
+    warp = getWarp(32, block)
+    grid = tuple(block[i] // warp[i] for i in range(0,3))
+    visitor = CL32Visitor()
+    gridIteration(loadAddresses, warp, grid, visitor)
+    print(warp)
+    print (visitor.CLs)
+    return visitor.CLs * 32 / block[0] / block[1] / block[2]
 
 
 def getWarp(warpSize, block):
@@ -119,37 +151,54 @@ def getMemStoreBlockVolume(block, grid, addresses):
     return visitor.CLs * 32 / grid[0] / grid[1] / grid[2]
 
 
-def getVolumes(kernel, block, grid, validDomain):
+def getVolumes(kernel, block, grid, validDomain, blockingFactors=(1,1,1)):
 
+    smCount = 80
+    sizeL2 = 6 * 1024 * 1024
+
+
+    blocksPerSM = predict.getBlocksPerSM(block, kernel.registers)
     concurrentGrid = predict.getConcurrentGrid(
-        predict.getBlocksPerSM(block, 32) * 80, grid
+        blocksPerSM * smCount, grid
     )
+
+    print("Blocks per SM: " + str(blocksPerSM))
+    print("Concurrent Grid: " + str(concurrentGrid))
+
     truncatedConcurrentGrid = tuple(min(4, c) for c in concurrentGrid)
     threadsPerBlock = block[0] * block[1] * block[2]
+    lupsPerBlock = threadsPerBlock * reduce(mul, blockingFactors)
+    lupsPerSM = blocksPerSM * lupsPerBlock
+
+    print("Lups/Block: " + str(lupsPerSM))
 
     results = {}
 
+    results["L1AllocatedLoad"] = getL1AllocatedLoadBlockVolume(block, truncatedConcurrentGrid, kernel.genLoads()) * blocksPerSM
+    results["L1Load"] = getL2StoreBlockVolume(block, truncatedConcurrentGrid, kernel.genLoads()) / lupsPerBlock
+    results["L1WarpLoad"] = getL1WarpLoadVolume(block, kernel.genLoads()) / reduce(mul, blockingFactors)
+
     results["L2Load"] = (
         getL2LoadBlockVolume(block, truncatedConcurrentGrid, kernel.genLoads())
-        / threadsPerBlock
+        / lupsPerBlock
     )
 
     results["L2Store"] = (
         getL2StoreBlockVolume(block, truncatedConcurrentGrid, kernel.genStores())
-        / threadsPerBlock
+        / lupsPerBlock
     )
 
     results["memLoad"] = (
         getMemLoadBlockVolume(block, concurrentGrid, kernel.genLoads())
-        / threadsPerBlock
+        / lupsPerBlock
     )
 
     results["memStore"] = (
         getMemStoreBlockVolume(block, concurrentGrid, kernel.genStores())
-        / threadsPerBlock
+        / lupsPerBlock
     )
 
-    vMemComplete, vMemNew, vMemOverlap, cellCount = getMemLoadBlockVolumeISL(
+    vMemNew, vMemOld, vMemOverlap, cellCount = getMemLoadBlockVolumeISL(
         block,
         concurrentGrid,
         grid,
@@ -157,57 +206,61 @@ def getVolumes(kernel, block, grid, validDomain):
         validDomain,
     )
 
-    concurrentBlocks = predict.getBlocksPerSM(block, 32) * 80
-    vMemComplete *= concurrentBlocks
+    concurrentBlocks = predict.getBlocksPerSM(block, kernel.registers) * smCount
     vMemNew *= concurrentBlocks
+    vMemOld *= concurrentBlocks
     vMemOverlap *= concurrentBlocks
 
-    sizeL2 = 6 * 1024 * 1024
+    vMemStore = results["memStore"] * concurrentBlocks * lupsPerBlock
+    vL2Store = results["L2Store"] * concurrentBlocks * lupsPerBlock
+    vL2Load = results["L2Load"] * concurrentBlocks * lupsPerBlock
 
-    vMemStore = results["memStore"] * concurrentBlocks * threadsPerBlock
-    vL2Store = results["L2Store"] * concurrentBlocks * threadsPerBlock
-    vL2Load = results["L2Load"] * concurrentBlocks * threadsPerBlock
+    vL2LoadSM = results["L2Load"] * lupsPerSM
+
+    print("Allocated L1 Volume / SM: {:.0f} kB".format((results["L1AllocatedLoad"] ) / 1024))
+    print("L1 Load Volume: {:.0f} B / Lup".format((results["L1Load"] ) ))
+    print("L1 Warp Load Volume: {:.0f} B / Lup".format((results["L1WarpLoad"] ) ))
+
+    vL1CapacityMiss = max(0, (1 - (128*1024) / ( results["L1AllocatedLoad"] ))) * (results["L1Load"] - results["L2Load"]) * 0.25
+    print("L1 capacity miss: {:.1f} B/Lup".format(vL1CapacityMiss))
+    results["L2LoadExt"] = results["L2Load"] + vL1CapacityMiss
 
     vMem = 0
 
-    if vMemNew < sizeL2:
-        vMem = vMemNew
-    elif vMemNew < sizeL2:
-        vMem = vMemNew + vMemOverlap * ((2 * vMemNew - sizeL2) / vMemNew) ** 2 * 0.5
+    vMemTotal = vMemNew + vMemOld - vMemOverlap
+
+    effectiveL2 = max(sizeL2 * 0.5, sizeL2 - vMemStore)
+    if vMemTotal < effectiveL2:
+        vMem = vMemNew - vMemOverlap
+    elif vMemNew < effectiveL2:
+        vMem = vMemNew - vMemOverlap * (1 - (vMemTotal - effectiveL2) / vMemOld)
     else:
-        vMem = vMemNew + vMemOverlap * (1 - 0.5 * (sizeL2 / vMemNew) ** 2)
+        vMem = vMemNew
 
-    vL2 = results["L2Load"] * concurrentBlocks * threadsPerBlock
 
-    vMemEvicted = 0
-    if vMemComplete + vMemStore > sizeL2 and vMemComplete > 0:
-        vMemEvicted = (
-            (vL2 - vMemComplete)
-            * (vMemComplete - sizeL2 * (1 - vMemStore / vMemComplete))
-            / vMemComplete
-        )
 
-    # vMem += vMemEvicted
+    results["L2LoadAllocated"] = vMem + vMemStore
+    results["memLoadISL"] = vMem / concurrentBlocks / lupsPerBlock
 
-    results["memLoadISL"] = vMem / concurrentBlocks / threadsPerBlock
-    results["memLoadISLext"] = (vMem + vMemEvicted) / concurrentBlocks / threadsPerBlock
+    vMemCapacityMiss = min(1, max(0, (1 - effectiveL2 / ( vMem )))) * (results["L2Load"] - results["memLoadISL"])
+    results["memLoadISLext"] = (vMem ) / concurrentBlocks / lupsPerBlock + vMemCapacityMiss
 
     vStoreEvicted = (vL2Store - vMemStore) * 0.2
 
     results["memStoreExt"] = (
-        (vMemStore + vStoreEvicted) / concurrentBlocks / threadsPerBlock
+        (vMemStore + vStoreEvicted) / concurrentBlocks / lupsPerBlock
     )
 
     print(
-        "Load Data Volumes: {:.0f} {:.0f} {:.0f} kb".format(
-            vMemComplete / 1024,
-            vL2 / 1024,
-            vMemEvicted / 1024,
+        "Load Data Volumes (new, old, overlap): {:.0f}  {:.0f}  {:.0f} kb".format(
+            vMemNew / 1024,
+            vMemOld / 1024,
+            vMemOverlap / 1024,
         )
     )
 
     print(
-        "Store Data Volumes: {:.0f} {:.0f} {:.0f} kb  ".format(
+        "Store Data Volumes (mem, L2, evicted): {:.0f} {:.0f} {:.0f} kb  ".format(
             vMemStore / 1024, vL2Store / 1024, vStoreEvicted / 1024
         )
     )
