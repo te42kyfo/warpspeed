@@ -242,7 +242,7 @@ def getVolumes(kernel, block, grid, validDomain, blockingFactors=(1,1,1)):
     results["L2LoadAllocated"] = vMem + vMemStore
     results["memLoadISL"] = vMem / concurrentBlocks / lupsPerBlock
 
-    vMemCapacityMiss = min(1, max(0, (1 - effectiveL2 / ( vMem )))) * (results["L2Load"] - results["memLoadISL"])
+    vMemCapacityMiss = min(1, max(0, (1 - effectiveL2 / ( vMem )))) * (results["L2LoadExt"] - results["memLoadISL"])
     results["memLoadISLext"] = (vMem ) / concurrentBlocks / lupsPerBlock + vMemCapacityMiss
 
     vStoreEvicted = (vL2Store - vMemStore) * 0.2
