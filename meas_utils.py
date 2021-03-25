@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+from subprocess import run, PIPE
 
 sys.path.append("../pystencils")
 sys.path.append("../genpredict")
@@ -12,7 +13,7 @@ import measure_metric.measureMetric as measureMetric
 import math
 from predict import *
 from timeit import timeit
-
+import pycuda
 
 def timeKernel(run_func):
     start = drv.Event()
@@ -152,7 +153,7 @@ def measureMetrics(runFunc, size):
     lupCount = reduce(mul, size)
 
     measurements = []
-    for i in range(0, 3):
+    for i in range(0, 5):
         measureMetric.measureBandwidthStart()
         runFunc()
         measurements.append(measureMetric.measureMetricStop())
@@ -163,9 +164,33 @@ def measureMetrics(runFunc, size):
 
     results = dict()
 
+    print(medians[1])
+
     results["memLoad"] = medians[0] / lupCount
     results["memStore"] = medians[1] / lupCount
     results["L2Load"] = medians[2] * 32 / lupCount
     results["L2Store"] = medians[3] * 32 / lupCount
 
     return results
+
+
+
+def printSASS(code):
+    print(code)
+    cubin = pycuda.compiler.compile(code, options=["-w", "-std=c++11"], arch="sm_70")
+
+    run(['echo "' + code + '" >> temp.cubin'], stdout=PIPE, shell=True)
+
+    newFile = open("temp.cubin", "wb")
+    newFile.write(cubin)
+    newFile.close()
+
+    result = run(["nvdisasm  temp.cubin"], stdout=PIPE, shell=True)
+
+    print(len(result.stdout.decode("utf-8").split("\n")))
+
+    print(result.stdout.decode("utf-8"))
+
+    newFile = open("temp.disasm", "wb")
+    newFile.write(result.stdout)
+    newFile.close()
