@@ -18,7 +18,7 @@ import sympy as sp
 
 # domain
 R = 500
-domain_size = (4 * R, 4 * R)
+domain_size = (254, 198, 198)
 
 # time step
 timesteps = 10000
@@ -43,8 +43,8 @@ kappa = 1.5 * sigma * W
 w_c = 1.0 / (0.5 + (3.0 * M))
 
 
-stencil_phase = get_stencil("D2Q9")
-stencil_hydro = get_stencil("D2Q9")  # D3Q15, D3Q19, D3Q27
+stencil_phase = get_stencil("D3Q19")
+stencil_hydro = get_stencil("D3Q19")  # D3Q15, D3Q19, D3Q27
 assert len(stencil_phase[0]) == len(stencil_hydro[0])
 
 
@@ -159,6 +159,7 @@ allen_cahn_lb = create_lb_update_rule(
     compressible=True,
     optimization={"symbolic_field": h, "symbolic_temporary_field": h_tmp},
     kernel_type="stream_pull_collide",
+    # kernel_type="collide_stream_push",
 )
 
 ast_allen_cahn_lb = ps.create_kernel(
@@ -172,7 +173,7 @@ hydro_lb_update_rule = get_collision_assignments_hydro(
     velocity_input=u,
     force=force_g,
     sub_iterations=2,
-    optimization={"symbolic_field": g, "symbolic_temporary_field": g_tmp},
+    symbolic_fields={"symbolic_field": g,"symbolic_temporary_field": g_tmp},
     kernel_type="collide_stream_push",
 )
 
@@ -183,9 +184,57 @@ ast_hydro_lb = ps.create_kernel(hydro_lb_update_rule, target="gpu")
 kernel_hydro_lb = ast_hydro_lb.compile()
 
 
-def get_allen_cahn_ast(block_size):
+def transformReadOnly(eqs):
+    newEqs = []
+    counter = 0
+    for eq in eqs:
+        if isinstance(eq.lhs, ps.field.Field.Access):
+            tempSymbol = sp.Symbol("temp" + str(counter))
+            counter += 1
+            newEqs.append(ps.Assignment(tempSymbol, eq.rhs))
+            newEqs.append(
+                psast.Conditional(
+                    sp.Eq(tempSymbol, 2.2123),
+                    psast.Block([ps.Assignment(eq.lhs, tempSymbol)]),
+                )
+            )
+        else:
+            newEqs.append(eq)
+    return newEqs
+
+
+def transformWriteOnly(eqs):
+    counter = 0.2
+
+    def visit(expr):
+        fields = []
+
+        if isinstance(expr, ps.field.Field.Access):
+            fields.append(expr)
+        for a in expr.args:
+            if isinstance(a, ps.field.Field.Access):
+                fields.append(a)
+            fields.extend(visit(a))
+        return fields
+
+    newEqs = []
+    for eq in eqs:
+        if isinstance(eq, ps.Assignment):
+            fields = visit(eq.rhs)
+            newEqs.append(eq.subs([(f, 0.2) for f in fields]))
+    return newEqs
+
+
+def get_allen_cahn_ast(block_size, mode=None):
+    update_rule = allen_cahn_lb
+    if mode == "readOnly":
+        update_rule = transformReadOnly(update_rule)
+
+    if mode == "writeOnly":
+        update_rule = transformWriteOnly(update_rule)
+
     return ps.create_kernel(
-        allen_cahn_lb,
+        update_rule,
         target="gpu",
         gpu_indexing_params={
             "block_size": block_size,
@@ -194,9 +243,14 @@ def get_allen_cahn_ast(block_size):
     )
 
 
-def get_hydro_lb_ast(block_size):
+def get_hydro_lb_ast(block_size, mode=None):
+    update_rule = hydro_lb_update_rule
+    if mode == "readOnly":
+        update_rule = transformReadOnly(update_rule)
+    if mode == "writeOnly":
+        update_rule = transformWriteOnly(update_rule)
     return ps.create_kernel(
-        hydro_lb_update_rule,
+        update_rule,
         target="gpu",
         gpu_indexing_params={
             "block_size": block_size,
@@ -205,8 +259,13 @@ def get_hydro_lb_ast(block_size):
     )
 
 
-def get_lbm_ast(block_size):
-    options = {"method": "srt", "stencil": "D2Q9", "relaxation_rate": w_c}
+def get_lbm_ast(block_size, mode=None, kernel_type="stream_pull_collide"):
+    options = {
+        "method": "srt",
+        "stencil": "D2Q9",
+        "relaxation_rate": w_c,
+        "kernel_type": kernel_type,
+    }
     lb_method = create_lb_method(**options)
 
     update_rule = create_lb_update_rule(
@@ -215,41 +274,11 @@ def get_lbm_ast(block_size):
         **options
     )
 
-    readOnly = False
-    if readOnly:
-        newEqs = []
-        counter = 0
-        for eq in update_rule:
-            if isinstance(eq.lhs, ps.field.Field.Access):
-                tempSymbol = sp.Symbol("temp" + str(counter))
-                counter += 1
-                newEqs.append(ps.Assignment(tempSymbol, eq.rhs))
-                newEqs.append(
-                    psast.Conditional(
-                        sp.Eq(tempSymbol, 2.2),
-                        psast.Block([ps.Assignment(eq.lhs, tempSymbol)]),
-                    )
-                )
-            else:
-                newEqs.append(eq)
-        update_rule = newEqs
-    else:
-        counter = 0.2
+    if mode == "readOnly":
+        update_rule = transformReadOnly(update_rule)
+    elif mode == "writeOnly":
+        update_rule = transformWriteOnly(update_rule)
 
-        def visit(expr):
-            fields = []
-            for a in expr.args:
-                if isinstance(a, ps.field.Field.Access):
-                    fields.append(a)
-                fields.extend(visit(a))
-            return fields
-
-        newEqs = []
-        for eq in update_rule:
-            fields = visit(eq.rhs)
-            newEqs.append(eq.subs([(f, 0.2) for f in fields]))
-
-    update_rule = newEqs
     return ps.create_kernel(
         update_rule,
         target="gpu",
