@@ -55,7 +55,7 @@ def getMemLoadBlockVolumeISL(
     ):
         prev2MetaGridPosition = prevMetaGridPosition
 
-    print("ISL Meta Grid:" + str(metaGrid))
+    #print("ISL Meta Grid:" + str(metaGrid))
 
 
     concurrentThreads = tuple([block[i] * concurrentGrid[i] for i in range(3)])
@@ -150,9 +150,9 @@ def getMemLoadBlockVolumeISL(
 
     cellCount = max(1, cellCount)  # avoid division by zero
     return (
-        Vnew * 32 / cellCount * (block[0] * block[1] * block[2]),
-        Vold * 32 / cellCount * (block[0] * block[1] * block[2]),
-        Voverlap * 32 / cellCount * (block[0] * block[1] * block[2]),
+        Vnew * 32,
+        Vold * 32,
+        Voverlap * 32,
         cellCount,
     )
     # return Vmem * 32 / cellCount * (block[0] * block[1] * block[2])
