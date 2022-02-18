@@ -42,6 +42,15 @@ class CL128Visitor:
     def count(self, addresses):
         self.CLs += np.unique(addresses // 16).size
 
+
+class PageVisitor:
+    def __init__(self, pageSize):
+        self.pageSize = pageSize
+        self.pages = 0
+
+    def count(self, addresses):
+        self.pages += np.unique(addresses // (self.pageSize/8)).size
+
 class L1thruVisitor:
     def __init__(self):
         self.cycles = 0
@@ -59,10 +68,11 @@ class L1thruVisitor:
 
 def gridIteration(fields, innerSize, outerSize, visitor):
 
-    idx = np.arange(32, innerSize[0]+32, dtype=np.int32)
-    idy = np.arange(32, innerSize[1]+32, dtype=np.int32)
-    idz = np.arange(32, innerSize[2]+32, dtype=np.int32)
+    idx = np.arange(0, innerSize[0], dtype=np.int32)
+    idy = np.arange(0, innerSize[1], dtype=np.int32)
+    idz = np.arange(0, innerSize[2], dtype=np.int32)
     x, y, z = np.meshgrid(idx, idy, idz)
+
 
     for field in fields:
         for outerId in np.ndindex(outerSize):
@@ -74,10 +84,14 @@ def gridIteration(fields, innerSize, outerSize, visitor):
             visitor.count(addresses)
 
 
-def getL2LoadBlockVolume(block, grid, loadAddresses):
-    visitor = CL32Visitor()
+def getL2LoadBlockVolume(block, grid, loadAddresses, fetchSize):
+    if fetchSize == 32:
+        visitor = CL32Visitor()
+    elif fetchSize == 64:
+        visitor = CL64Visitor()
+
     gridIteration(loadAddresses, block, grid, visitor)
-    return visitor.CLs * 32 / grid[0] / grid[1] / grid[2]
+    return visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
 
 def getL1AllocatedLoadBlockVolume(block, grid, loadAddresses):
     visitor = CL128Visitor()
@@ -147,3 +161,12 @@ def getMemStoreWaveVolume(block, grid, addresses):
 
     gridIteration(addresses, innerSize, (1, 1, 1), visitor)
     return visitor.CLs * 32
+
+
+def getWaveLoadTLBPages(block, grid, addresses, pageSize):
+    visitor = PageVisitor(pageSize)
+
+    innerSize = tuple(block[i] * grid[i] for i in range(3))
+
+    gridIteration(addresses, innerSize, (1, 1, 1), visitor)
+    return visitor.pages
