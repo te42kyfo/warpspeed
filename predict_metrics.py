@@ -37,7 +37,7 @@ class DeviceVolta:
 
 class DeviceAmpere: # unverified
     def __init__(self):
-        self.clock = 1410
+        self.clock = 1.410
         self.smCount = 108
         self.sizeL2 = 20 * 1024 * 1024
         self.sizeL1 = 192*1024
@@ -51,7 +51,7 @@ class DeviceAmpere: # unverified
         self.L2texBW = 4500
         self.L2ltcBW = 4500/2
 
-        self.L2TagRate = 40 * self.clock / 1000
+        self.L2TagRate = 40 * self.clock
 
         self.name = "A100"
 
@@ -198,8 +198,6 @@ class DerivedMetrics:
 
         # Remap block quantity to thread balance
         self.L2LoadV1 = self.basic.blockL2Load / self.lc.threadsPerBlock / lupsPerThread
-        self.L2Load32V1 = self.basic.blockL2Load32 / self.lc.threadsPerBlock / lupsPerThread
-        self.L2Load64V1 = self.basic.blockL2Load64 / self.lc.threadsPerBlock / lupsPerThread
 
         # Total memory amount per SM allocated by 128B cache lines touched by loads
         self.smL1Alloc = self.basic.blockL1LoadAlloc * self.lc.blocksPerSM
@@ -294,7 +292,7 @@ class DerivedMetrics:
 
         if not meas is None:
             self.perfMemPheno = self.device.memBW / (meas.memLoad  + meas.memStore)
-            self.perfL2Pheno = min(self.device.L2BW / meas.L2Load, self.device.L2BW / meas.L2Store)
+            self.perfL2Pheno = min(self.device.L2BW / meas.L2Load_tex, self.device.L2BW / meas.L2Store)
             self.perfPheno, self.limPheno = selectLimiter([self.perfL1, self.perfL2Pheno, self.perfMemPheno])
             self.perfPhenoL2Ext, self.limPhenoL2Ext = selectLimiter(
                 [self.device.L2totalBW / meas.L2total, self.device.L2texBW / meas.L2tex, self.device.L2ltcBW / meas.L2ltc])
