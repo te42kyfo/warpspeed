@@ -3,12 +3,14 @@
 import islpy as isl
 import random
 import timeit
+import time
 
 
 def getMemLoadBlockVolumeISL(
     block, concurrentGrid, totalGrid, loadExprs, validDomain=None
 ):
 
+    t = time.process_time()
     if not validDomain is None:
         validDomainSet = isl.BasicSet(
             "{{[x,y,z] : {0} <= x < {3} and {1} <= y < {4} and {2} <= z < {5} }}".format(
@@ -23,7 +25,10 @@ def getMemLoadBlockVolumeISL(
 
     # print(validDomainSet)
 
+
     metaGrid = tuple((totalGrid[i] - 1) // concurrentGrid[i] + 1 for i in range(3))
+
+
 
     metaGridPosition = (
         metaGrid[0] // 2,
@@ -92,7 +97,7 @@ def getMemLoadBlockVolumeISL(
         addresses = None
         prevAddresses = None
         cellCount = 0
-        for tidz in range(0, block[2]):
+        for tidz in range(0, min(32, block[2]*concurrentGrid[2])): #min(32 is for performance reasons. Would never terminate with that many slices)
             tidzSliceString = " {{[tidx, tidy, tidz] : {0} <= tidx < {3} and {1} <= tidy < {4} and {2} <= tidz < {5}}}".format(
                 *(metaGridPosition[i] * concurrentThreads[i] for i in range(2)),
                 metaGridPosition[2] * concurrentThreads[2] + tidz,
@@ -149,6 +154,8 @@ def getMemLoadBlockVolumeISL(
         Voverlap += addresses.intersect(prevAddresses).count_val().to_python()
 
     cellCount = max(1, cellCount)  # avoid division by zero
+    elapsed_time = time.process_time() - t
+    print("Time for ISL " + str(elapsed_time*1000) + " ms")
     return (
         Vnew * 32,
         Vold * 32,

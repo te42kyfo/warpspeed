@@ -2,6 +2,7 @@
 
 from griditeration import *
 from volumes_isl import *
+from volumes_isl3d import *
 from column_print import *
 import math
 
@@ -122,14 +123,18 @@ class BasicMetrics:
         self.waveMemLoad = max(1, getMemLoadWaveVolume(lc.block, lc.waveSize, kernel.genLoads()))
         self.waveMemStore = max(1, getMemStoreWaveVolume(lc.block, lc.waveSize, kernel.genStores()))
         self.waveMemLoadISL, self.waveMemLoadOld, self.waveMemOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genLoadExprs(), [0,0,0] + lc.domain)
-        self.waveMemLoadIsl = max(1, self.waveMemLoadISL)
+        self.waveMemStoreISL, self.waveMemStoreOld, self.waveMemStoreOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genStoreExprs(), [0,0,0] + lc.domain)
         self.waveMemLoadOld = max(1, self.waveMemLoadOld)
-        self.waveMemOverlap = self.waveMemOverlap
+
+        self.waveMemNewISL3D, self.waveMemOldISL3D, self.waveMemOverlapISL3D, self.waveValidCellsISL3D = getMemBlockVolumeISL3D({**kernel.getLoadExprs3D(), **kernel.getStoreExprs3D()}, device, lc.block, lc.grid, [0,0,0] + lc.domain, lc.blocksPerSM * device.smCount)
+        deviceA40MB = DeviceAmpere()
+        deviceA40MB.sizeL2 = 40 * 1024 * 1024
+        self.waveMemNewISL3D40MB, self.waveMemOldISL3D40MB, self.waveMemOverlapISL3D40MB, self.waveValidCellsISL3D40MB = getMemBlockVolumeISL3D({**kernel.getLoadExprs3D(), **kernel.getStoreExprs3D()}, deviceA40MB, lc.block, lc.grid, [0,0,0] + lc.domain, lc.blocksPerSM * device.smCount)
         self.TLBpages = getWaveLoadTLBPages(lc.block, lc.waveSize, {**kernel.genLoads(), **kernel.genStores()}, 2*1024*1024)
         return self
 
     def fromDict(values):
-        self = BasicMetrics()
+        self = BasicMetrics(0)
         self.__dict__ = values
         return self
 
@@ -145,7 +150,7 @@ class BasicMetrics:
     def __str__(self):
         columns = [["blockL1LoadAlloc", "blockL1Load", "warpL1Load", "blockL2Load"],
                    ["waveMemLoad", "waveMemLoadISL", "waveMemLoadOld", "waveMemOverlap"],
-                   ["waveValidCells", "L1Cycles", "blockL2Store", "waveMemStore"],
+                   ["waveValidCells", "L1Cycles", "blockL2Store", "waveMemStoreISL"],
                    ["TLBpages"]]
         return columnPrint(self, columns)
 
@@ -217,7 +222,7 @@ class DerivedMetrics:
         self.memLoadV1 = self.basic.waveMemLoadISL / self.basic.waveValidCells / lupsPerThread
 
         # total allocated memory in L2 cache
-        self.waveL2Alloc = self.memLoadV1 * self.lc.threadsPerBlock * self.lc.blocksPerSM * self.device.smCount * lupsPerThread + self.basic.waveMemStore
+        self.waveL2Alloc = self.memLoadV1 * self.lc.threadsPerBlock * self.lc.blocksPerSM * self.device.smCount * lupsPerThread + self.basic.waveMemStoreISL
 
         # computing the balance reduction from overlapping/hits in the previous wave. Use coverage of previous wave with remaining L2 capacity.
         self.memLoadOverlapAbsolute = self.basic.waveMemOverlap / self.basic.waveValidCells / lupsPerThread
@@ -237,7 +242,7 @@ class DerivedMetrics:
         self.memLoadV3 = self.memLoadV2 + self.memLoadEvicts
 
         # memory store volume
-        self.memStoreV1 = self.basic.waveMemStore / (self.lc.blocksPerSM * self.lc.threadsPerBlock * self.device.smCount) / lupsPerThread
+        self.memStoreV1 = self.basic.waveMemStoreISL / self.basic.waveValidCells / lupsPerThread
 
         # estimate partially written cache lines evicted before completion using L2 current coverage
         self.memStoreEvicts = max(0, self.L2Store - self.memStoreV1) * 0.66 * np.exp(-3.4*np.exp(-2.3* self.L2Oversubscription))
@@ -248,14 +253,19 @@ class DerivedMetrics:
         # memory load balance, assuming that a store evict triggers a read from memory
         self.memLoadV4 = self.memLoadV3 + self.memStoreEvicts
 
-        # performance estimate using the L1 cache throughput as sole limiter
+
+
+        self.memAll = (self.basic.waveMemNewISL3D - self.basic.waveMemOverlapISL3D)  / self.basic.waveValidCellsISL3D
+        self.memAll40MB = (self.basic.waveMemNewISL3D40MB - self.basic.waveMemOverlapISL3D40MB)  / self.basic.waveValidCellsISL3D40MB
+
+
         self.perfL1 = self.device.smCount * self.device.clock * 32 / self.L1Cycles if self.L1Cycles != 0 else 0
 
         # L2 bandwidth performance estimate. V1 without L1 evicts. load and store are independent
-        self.perfL2V1 = min(self.device.L2BW / self.L2LoadV1, self.device.L2BW / self.L2Store)
+        self.perfL2V1 = self.device.L2BW / (self.L2LoadV1 + self.L2Store)
 
         # L2 bandwidth performance estimate. V2 with L1 evicts. load and store are independent
-        self.perfL2V2 = min(self.device.L2BW / self.L2LoadV2, self.device.L2BW / self.L2Store)
+        self.perfL2V2 = self.device.L2BW / (self.L2LoadV2 + self.L2Store)
 
         # memory bandwidth performance estimate. V1 with simple footprints
         self.perfMemV1 = self.device.memBW / (self.memLoadV1 + self.memStoreV1)
