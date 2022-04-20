@@ -9,14 +9,14 @@ class MeasuredMetrics:
         (
             self.memLoad,
             self.memStore,
-            self.L2Load,
-            self.L2Store,
+            #self.L2Load,
+            #self.L2Store,
             self.L2Load_tex,
-            self.L2Store_tex,
-            self.L2tex,
+            self.L2Store,
+            #self.L2tex,
             #self.L2ltc,
             #self.L2total,
-            self.L2tagRequests,
+            #self.L2tagRequests,
             self.L1Wavefronts,
         ) = measureMetrics(runFunc, lc.domain)
 
@@ -90,10 +90,10 @@ class ResultComparer:
                 "L1LoadEvicts",
                 "L2LoadV1",
                 "L2LoadV2",
-                "measL2Load",
+                "measL2Load_tex",
             ],
             [
-                "memLoadOverlap",
+                "memLoadOverlap[0]",
                 "memLoadEvicts",
                 "memLoadV1",
                 "memLoadV2",

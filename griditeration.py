@@ -63,7 +63,7 @@ class L1thruVisitor:
             bank = int(a) % 16
             banks[bank] += 1
             maxCycles = max(maxCycles, banks[bank])
-        self.cycles += max(maxCycles,  np.unique(laneAddresses // 32).size)
+        self.cycles += max(maxCycles,  np.unique(laneAddresses // 128).size)
 
 
 def gridIteration(fields, innerSize, outerSize, visitor):

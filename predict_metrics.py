@@ -140,22 +140,8 @@ class BasicMetrics:
                 lc.block, lc.truncatedWaveSize, kernel.genLoads(), device.L2FetchSize
             ),
         )
-        self.blockL2Load32 = max(
-            1,
-            getL2LoadBlockVolume(lc.block, lc.truncatedWaveSize, kernel.genLoads(), 32),
-        )
-        self.blockL2Load64 = max(
-            1,
-            getL2LoadBlockVolume(lc.block, lc.truncatedWaveSize, kernel.genLoads(), 64),
-        )
         self.blockL2Store = max(
             1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, kernel.genStores())
-        )
-        self.waveMemLoad = max(
-            1, getMemLoadWaveVolume(lc.block, lc.waveSize, kernel.genLoads())
-        )
-        self.waveMemStore = max(
-            1, getMemStoreWaveVolume(lc.block, lc.waveSize, kernel.genStores())
         )
         # self.waveMemLoadISL, self.waveMemLoadOld, self.waveMemOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genLoadExprs(), [0,0,0] + lc.domain)
         # self.waveMemStoreISL, self.waveMemStoreOld, self.waveMemStoreOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genStoreExprs(), [0,0,0] + lc.domain)
@@ -163,8 +149,7 @@ class BasicMetrics:
         (
             self.waveMemLoadNew,
             self.waveMemStoreNew,
-            self.waveMemLoadOld,
-            self.waveMemStoreOld,
+            self.waveMemOld,
             self.waveMemLoadOverlap,
             self.waveMemStoreOverlap,
             self.waveValidCells,
@@ -194,9 +179,17 @@ class BasicMetrics:
     def stringKey(self, key, labelWidth, valueWidth):
         kB = key != "L1Cycles" and key != "waveValidCells" and key != "TLBpages"
         if key in self.__dict__:
-            string = "{:{labelWidth}}: {:{valueWidth}.0f} {:2}   ".format(
+
+            value = self.__dict__[key]
+            if isinstance(value, tuple) or isinstance(value, list):
+                valueStr = "{}".format(tuple(v / 1024 if kB else v for v in value))
+            else:
+                valueStr = "{:{valueWidth}.0f} ".format(value / 1024 if kB else value, valueWidth = valueWidth )
+
+
+            string = "{:{labelWidth}}: {} {:2}   ".format(
                 str(key),
-                self.__dict__[key] / (1024 if kB else 1),
+                valueStr,
                 "kB" if kB else "",
                 labelWidth=labelWidth,
                 valueWidth=valueWidth,
@@ -208,8 +201,8 @@ class BasicMetrics:
     def __str__(self):
         columns = [
             ["blockL1LoadAlloc", "blockL1Load", "warpL1Load", "blockL2Load"],
-            ["waveMemLoad", "waveMemNew", "waveMemOld", "waveMemOverlap"],
-            ["waveValidCells", "L1Cycles", "blockL2Store", "waveMemStore"],
+            ["waveMemLoadNew", "waveMemStoreNew", "waveMemLoadOverlap"],
+            ["waveValidCells", "L1Cycles", "blockL2Store", "waveMemStoreNew"],
             ["TLBpages"],
         ]
         return columnPrint(self, columns)
@@ -232,7 +225,7 @@ class BasicMetrics:
                 ("blockL2Load", manyByte),
             ],
             [
-                ("waveMemLoad", manyByte),
+                ("validCells", highCount),
                 ("waveMemLoadNew", manyByte),
                 ("waveMemLoadOld", manyByte),
                 ("waveMemLoadOverlap", manyByte),
@@ -296,15 +289,50 @@ class DerivedMetrics:
         # total allocated memory in L2 cache
         self.waveL2Alloc = self.basic.waveMemLoadNew + self.basic.waveMemStoreNew
 
-        self.memLoadOverlap = (
-            self.basic.waveMemLoadOverlap / self.basic.waveValidCells / lupsPerThread
+        self.memLoadOverlap = tuple(
+            w / self.basic.waveValidCells / lupsPerThread for w in self.basic.waveMemLoadOverlap
         )
 
+        def rover0(Vnew, Vold):
+            if Vold == 0:
+                oversubscription = 0.1
+            else:
+                oversubscription = min(10, max(0.01, Vold / (device.sizeL2 - Vnew)))
+
+            return 1.0 * exp(-0.078 * exp(1.03 * (oversubscription-0.2) ))
+
+        def rover1(Vnew, Vold):
+            if Vold == 0:
+                oversubscription = 0.1
+            else:
+                oversubscription = min(10, max(0.01, Vold / (device.sizeL2 - Vnew)))
+            return 1.0 * exp(-0.0036 * exp(3.97 * oversubscription ))
+
+
         # compute memory load balance reduced by hits in previous wave
-        self.memLoadV2 = self.memLoadV1 - self.memLoadOverlap
+
+        self.memLoadOverlapHit = (
+            self.memLoadOverlap[0] * rover0(0, self.basic.waveMemOld[0]),
+            self.memLoadOverlap[1] * rover1(0, self.basic.waveMemOld[1])
+        )
+        self.memLoadV2 = self.memLoadV1 - self.memLoadOverlapHit[0] - self.memLoadOverlapHit[1]
+
+
+        # memory store volume
+        self.memStoreV1 = (
+            self.basic.waveMemStoreNew / self.basic.waveValidCells / lupsPerThread
+        )
+
 
         # compute the L2 cache coverage of the current wave's accesses
         self.L2Oversubscription = self.waveL2Alloc / self.device.sizeL2
+
+        # estimate partially written cache lines evicted before completion using L2 current coverage
+        self.memStoreEvicts = (
+            max(0, self.L2Store - self.memStoreV1) * (1- 1.0 * np.exp(-0.044 * np.exp(0.61 * self.L2Oversubscription)))
+        )
+
+
 
         # estimate the L2 load evicts using coverage as proxy
         self.memLoadEvicts = (
@@ -313,26 +341,16 @@ class DerivedMetrics:
             * np.exp(-13 * np.exp(-1.8 * self.L2Oversubscription))
         )
 
-        # compute memory load balance including capacity evicts
-        self.memLoadV3 = self.memLoadV2 + self.memLoadEvicts
-
-        # memory store volume
-        self.memStoreV1 = (
-            self.basic.waveMemStoreNew / self.basic.waveValidCells / lupsPerThread
-        )
-
-        # estimate partially written cache lines evicted before completion using L2 current coverage
-        self.memStoreEvicts = (
-            max(0, self.L2Store - self.memStoreV1)
-            * 0.66
-            * np.exp(-3.4 * np.exp(-2.3 * self.L2Oversubscription))
-        )
-
         # memory store balance including store evicts
         self.memStoreV2 = self.memStoreV1 + self.memStoreEvicts
 
         # memory load balance, assuming that a store evict triggers a read from memory
-        self.memLoadV4 = self.memLoadV3 + self.memStoreEvicts
+        self.memLoadV3 = self.memLoadV2 + self.memStoreEvicts
+
+        # compute memory load balance including capacity evicts
+        self.memLoadV4 = self.memLoadV3 + self.memLoadEvicts
+
+
 
         self.perfL1 = (
             self.device.smCount * self.device.clock * 32 / self.L1Cycles
@@ -395,15 +413,7 @@ class DerivedMetrics:
             self.perfPheno, self.limPheno = selectLimiter(
                 [self.perfL1, self.perfL2Pheno, self.perfMemPheno]
             )
-            self.perfPhenoL2Ext, self.limPhenoL2Ext = selectLimiter(
-                [
-                    self.device.L2totalBW / meas.L2total,
-                    self.device.L2texBW / meas.L2tex,
-                    self.device.L2ltcBW / meas.L2ltc,
-                ]
-            )
 
-            self.perfPhenoL2Tag = self.device.L2TagRate / meas.L2tagRequests
 
     def stringKey(self, key, labelWidth, valueWidth):
         kB = key == "smL1Alloc" or key == "waveL2Alloc"
@@ -424,7 +434,7 @@ class DerivedMetrics:
         columns = [
             ["L1Cycles", "L1Load", "smL1Alloc", "L1LoadEvicts", "L2LoadV1", "L2LoadV2"],
             [
-                "memLoadOverlap",
+                "memLoadOverlap[0]",
                 "memLoadEvicts",
                 "memLoadV1",
                 "memLoadV2",
@@ -464,7 +474,7 @@ class DerivedMetrics:
                 ("L2LoadV2", fewByte),
             ],
             [
-                ("memLoadOverlap", smallCount),
+                ("memLoadOverlap[0]", smallCount),
                 ("memLoadEvicts", fewByte),
                 ("memLoadV1", fewByte),
                 ("memLoadV2", fewByte),

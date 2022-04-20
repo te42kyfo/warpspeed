@@ -42,14 +42,14 @@ def measureMetrics(runFunc, size):
             [
                 "dram__bytes_read.sum",
                 "dram__bytes_write.sum",
-                "lts__t_sectors_op_read.sum",
-                "lts__t_sectors_op_write.sum",
+                #"lts__t_sectors_op_read.sum",
+                #"lts__t_sectors_op_write.sum",
                 "lts__t_sectors_srcunit_tex_op_read.sum",
                 "lts__t_sectors_srcunit_tex_op_write.sum",
-                "lts__t_sectors_srcunit_tex.sum",
+                #"lts__t_sectors_srcunit_tex.sum",
                 #"lts__t_sectors_srcunit_ltcfabric.sum",
                 #"lts__t_sectors.sum",
-                "lts__t_tag_requests.sum",
+                #"lts__t_tag_requests.sum",
                 "l1tex__data_pipe_lsu_wavefronts.sum",
             ]
         )
@@ -66,13 +66,9 @@ def measureMetrics(runFunc, size):
         medians[1] / lupCount,
         medians[2] * 32 / lupCount,
         medians[3] * 32 / lupCount,
-        medians[4] * 32 / lupCount,
-        medians[5] * 32 / lupCount,
-        medians[6] * 32 / lupCount,
         #medians[7] * 32 / lupCount,
         #medians[8] * 32 / lupCount,
-        medians[7] / lupCount,
-        medians[8] / lupCount,
+        medians[4] / lupCount,
     )
 
 
