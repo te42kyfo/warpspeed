@@ -36,7 +36,7 @@ class DeviceVolta:
         self.name = "V100"
 
 
-class DeviceAmpere:  # unverified
+class DeviceAmpere:
     def __init__(self):
         self.clock = 1.410
         self.smCount = 108
@@ -200,11 +200,10 @@ class BasicMetrics:
 
     def __str__(self):
         columns = [
-            ["blockL1LoadAlloc", "blockL1Load", "warpL1Load", "blockL2Load"],
-            ["waveMemLoadNew", "waveMemStoreNew", "waveMemLoadOverlap"],
-            ["waveValidCells", "L1Cycles", "blockL2Store", "waveMemStoreNew"],
-            ["TLBpages"],
-        ]
+            ["TLBpages", "L1Cycles", "blockL1LoadAlloc", "blockL1Load"],
+            [ "blockL2Load", "blockL2Store", "waveMemLoadNew", "waveMemStoreNew"],
+            ["waveValidCells", "waveMemLoadOverlap", "waveMemStoreOverlap", "waveMemOld"]]
+
         return columnPrint(self, columns)
 
     def html(self):
@@ -448,6 +447,14 @@ class DerivedMetrics:
                 "L2Store",
                 "memStoreV1",
                 "memStoreV2",
+            ],
+            [
+                "perfMemV3",
+                "perfL2V2",
+                "perfL1",
+                "perfV3",
+                "perfPheno",
+                "measperf"
             ],
         ]
 
