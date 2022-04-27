@@ -5,6 +5,33 @@ import sympy as sp
 
 
 
+
+class WarpspeedKernel:
+    def __init__(self, loadExprs, storeExprs, domain, registers):
+        self.registers = registers
+        self.loadExprs3D = {field : [(expr, "0", "0") for expr in loadExprs[field]] for field in loadExprs}
+        self.storeExprs3D = {field : [(expr, "0", "0") for expr in storeExprs[field]] for field in storeExprs}
+
+        def sympifyExprs(exprs):
+            return {field : [sp.lambdify( sp.symbols("tidx, tidy, tidz, blockIdx, blockIdy, blockIdz, blockDimx, blockDimy, blockDimz"),
+                                sp.sympify( expr)) for expr in exprs[field]] for field in exprs}
+
+        self.loadExprs = sympifyExprs(loadExprs)
+        self.storeExprs = sympifyExprs(storeExprs)
+
+    def getLoadExprs3D(self):
+        return self.loadExprs3D
+
+    def getStoreExprs3D(self):
+        return self.storeExprs3D
+
+    def genLoads(self):
+        return self.loadExprs
+
+    def genStores(self):
+        return self.storeExprs
+
+
 class WarpspeedGridKernel:
     def __init__(self, loadExprs3D, storeExprs3D, domain, registers, alignment):
         self.registers = registers
