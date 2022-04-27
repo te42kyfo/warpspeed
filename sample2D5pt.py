@@ -5,12 +5,13 @@ import sympy as sp
 from warpspeedkernel import *
 
 
-blockSize = (256, 2, 1)
+blockSize = (512, 1, 1)
 domain = (15000, 15000, 1)
 blockingFactors = (1,1,1)
 device = DeviceAmpere()
 
-kernel =  WarpspeedGridKernel({"A" : [("tidx+1", "tidy", "0"),
+kernel =  WarpspeedGridKernel({"A" : [("tidx", "tidy", "0"),
+                                      ("tidx+1", "tidy", "0"),
                                       ("tidx-1", "tidy", "0"),
                                       ("tidx", "tidy+1", "0"),
                                       ("tidx", "tidy-1", "0")]},

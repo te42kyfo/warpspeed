@@ -4,7 +4,7 @@ from predict_metrics import *
 from warpspeedkernel import *
 
 
-blockSize = (256, 2, 2)
+blockSize = (256, 1, 2)
 domain = (640, 512, 512)
 blockingFactors = (1,1,1)
 device = DeviceAmpere()

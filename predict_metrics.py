@@ -432,10 +432,10 @@ class DerivedMetrics:
             ],
             [
                 ("L1Cycles", "cyc"),
-                ("perfMemV3", "GFlop/s"),
-                ("perfL2V2", "GFlop/s"),
-                ("perfL1", "GFlop/s"),
-                ("perfV3", "GFlop/s"),
+                ("perfMemV3", "GLups/s"),
+                ("perfL2V2", "GLups/s"),
+                ("perfL1", "GLups/s"),
+                ("perfV3", "GLups/s"),
             ],
         ]
 
@@ -450,7 +450,7 @@ class DerivedMetrics:
         kiloByte = lambda v: "{:.1f} kB".format(v / 1024)
         manyByte = lambda v: "{:.0f} B".format(v)
         fewByte = lambda v: "{:.1f} B".format(v)
-        gflops = lambda v: "{:.1f} GFlop/s".format(v)
+        gflops = lambda v: "{:.1f} GLups/s".format(v)
 
         columns = [
             [
