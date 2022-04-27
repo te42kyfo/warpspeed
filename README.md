@@ -1,5 +1,35 @@
 # WARPSPEED
 
+## Summary
+
+Supply a description of a GPU kernel like this
+
+``` python
+kernel = WarpspeedKernel(
+    {"A": ["tidx*3 + 0", "tidx*3 + 1", "tidx*3 + 2"], "B": ["tidx"]},
+    {"C": ["tidx*3 + 0", "tidx*3 + 1", "tidx*3 + 2"], "D": ["tidx"]},
+    (5000000, 1, 1),
+    32,
+)
+```
+
+and get an estimate of the data volumes throughout the memory hierachy plus a performance estimate:
+
+``` 
+TLBpages        :     8        blockL2Load    :  32.0 kB     waveValidCells       :  220736        
+L1Cycles        :  16.0        blockL2Store   :    80 kB     waveMemLoadOverlap[0]:     0.0 kB     
+blockL1LoadAlloc:  32.0 kB     waveMemLoadNew :  6898 kB     waveMemLoadOverlap[1]:     0.0 kB     
+blockL1Load     :    80 kB     waveMemStoreNew:  6898 kB     waveMemOld[1]        :     0.0 kB     
+
+L1Load      :    80 B/Lup  memLoadOverlap[0]:   0.0 B/Lup  basic.waveMemOld[0]:  13.5 MB     L1Cycles :  16.0 cyc    
+smL1Alloc   :    64 kB     memLoadOverlap[1]:   0.0 B/Lup  basic.waveMemOld[1]:   0.0 MB     perfMemV3:  20.0 GLups/s
+L1LoadEvicts:   0.6 B/Lup  memLoadV1        :  32.0 B/Lup  L2Store            :    80 B/Lup  perfL2V2 :  40.0 GLups/s
+L2LoadV1    :  32.0 B/Lup  memLoadV2        :  32.0 B/Lup  memStoreV1         :  32.0 B/Lup  perfL1   :   305 GLups/s
+L2LoadV2    :  32.6 B/Lup  memLoadV3        :  35.1 B/Lup  memStoreV2         :  35.1 B/Lup  perfV3   :  20.0 GLups/s
+```
+
+
+
 ## Usage
 
 Dependencies:
@@ -14,17 +44,6 @@ Import the module `warpspeedkernel` to get access to the classes
    - a domain size tuple
    - the register count of the kernel
 
-This example (see sample1D.py) contains the memory transfers for a kernel that loads a 3D vector from `A`, normalizes and scales it by `B`, and saves the normalized vector and its previous lengths to `C` and `D`. 
-
-``` python
-kernel = WarpspeedKernel(
-    {"A": ["tidx*3 + 0", "tidx*3 + 1", "tidx*3 + 2"], "B": ["tidx"]},
-    {"C": ["tidx*3 + 0", "tidx*3 + 1", "tidx*3 + 2"], "D": ["tidx"]},
-    (5000000, 1, 1),
-    32,
-)
-```
-
 
 - `WarpspeedGridKernel`, requires on construction:
    - a dictionary of field names to lists of loaded 3D address expression tuples
@@ -32,18 +51,7 @@ kernel = WarpspeedKernel(
    - a domain size tuple
    - the register count of the kernel
    - grid alignment
-   
-This example (see sample2D5pt.py) is for a 2D 5-point stencil:
-
-``` python 
-kernel =  WarpspeedGridKernel({"A" : [("tidx", "tidy", "0")
-                                      ("tidx-1", "tidy", "0"),
-                                      ("tidx", "tidy+1", "0"),
-                                      ("tidx", "tidy-1", "0")]},
-                              {"B" : [("tidx", "tidy", "0")]},
-                              (15000, 15000), 32, 1)
-
-```
+  
 
 Import the module `predict_metrics` to get access to the three classes 
 - `LaunchConfig`: collects data about the launch configuration of the kernel
@@ -51,9 +59,9 @@ Import the module `predict_metrics` to get access to the three classes
 - `DerivedMetrics`: computes derived metrics from the basic values 
 
 ## Samples
-### 2D 5-point sample on a A100: 
+### 1D sample on a A100: 
 
-Output of sample2D5pt.py, which analyzes a range 1, 2D 5-point stencil using a (256,2,1) thread block size for a (15000, 15000) domain:
+This example (see sample1D.py) contains the memory transfers for a kernel that loads a 3D vector from `A`, normalizes and scales it by `B`, and saves the normalized vector and its previous lengths to `C` and `D`. 
 
 ``` 
 TLBpages        :     8        blockL2Load    :  32.0 kB     waveValidCells       :  220736        
@@ -70,7 +78,7 @@ L2LoadV2    :  32.6 B/Lup  memLoadV3        :  35.1 B/Lup  memStoreV2         : 
 
 Analysis: the predicted performance of 20 GLups/s is memory bandwidth bound.
 
-### 2D 5-point sample on a A100: 
+### 2D 5-point stencil sample on a A100: 
 
 Output of sample2D5pt.py, which analyzes a range 1, 2D 5-point stencil using a (256,2,1) thread block size for a (15000, 15000) domain:
 
@@ -90,7 +98,7 @@ L2LoadV2    :  12.4 B/Lup  memLoadV3        :  8.1 B/Lup  memStoreV2         :  
 
 Analysis: the predicted performance of 87 GLups/s is memory bandwidth bound.
 
-### 3D 25-point sample on a A100
+### 3D 25-point stencil sample on a A100
 
 Output of sample3D25pt.py, which analyzes a range 4 star, 3D 25-point stencil using a (256,1,2) thread block size for a (640, 512, 512) domain:
 
@@ -107,4 +115,4 @@ L2LoadV1    :   77 B/Lup  memLoadV2        :  18.0 B/Lup  memStoreV1         :  
 L2LoadV2    :   81 B/Lup  memLoadV3        :  18.1 B/Lup  memStoreV2         :   8.1 B/Lup  perfV3   :  50 GLups/s
 ```
 
-Analysis: the predicted performance of 87 GLups/s is L2 cache bandwidth bound.
+Analysis: the predicted performance of 50 GLups/s is L2 cache bandwidth bound (hint, a different thread block size would change that).
