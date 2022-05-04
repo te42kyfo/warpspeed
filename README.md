@@ -2,6 +2,8 @@
 
 ## Summary
 
+The functionality and the principles of the Warpspeed metric and performance estimator are described in https://arxiv.org/abs/2204.14242.
+
 Supply a description of a GPU kernel like this
 
 ``` python
