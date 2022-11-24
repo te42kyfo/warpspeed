@@ -405,12 +405,13 @@ class DerivedMetrics:
         )
 
         if not meas is None:
-            self.perfMemPheno = self.device.memBW / (meas.memLoad + meas.memStore)
+            self.perfMemPheno = self.device.memBW / max(0.1, meas.memLoad + meas.memStore)
             self.perfL2Pheno = min(
-                self.device.L2BW / meas.L2Load_tex, self.device.L2BW / meas.L2Store
+                self.device.L2BW / max(0.1, meas.L2Load_tex), self.device.L2BW / max(0.1, meas.L2Store)
             )
+            self.perfL1Pheno = self.device.smCount * self.device.clock * 32 / meas.L1Wavefronts
             self.perfPheno, self.limPheno = selectLimiter(
-                [self.perfL1, self.perfL2Pheno, self.perfMemPheno]
+                [self.perfL1Pheno, self.perfL2Pheno, self.perfMemPheno]
             )
 
 
