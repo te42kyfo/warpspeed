@@ -25,10 +25,24 @@ def timeKernel(run_func):
     return end.time_since(start)
 
 
+class MeasStats:
+
+    def add(idx, val):
+        MeasStats.maxApe[idx] = max(MeasStats.maxApe[idx], val)
+        MeasStats.meanApe[idx] += val
+        MeasStats.samples[idx] += 1
+
+
+    maxApe = [0] * 6
+    meanApe = [0] * 6
+    samples = [0] * 6
+
 def benchKernel(run_func):
     run_func()
     repeats = [timeKernel(run_func) for i in range(0, 7)]
     repeats.sort()
+    MeasStats.add(5, abs(repeats[0] - repeats[-1]) / repeats[0])
+    #print( "{:5.2f} {:5.2f}".format( MeasStats.maxApe[5]*100, MeasStats.meanApe[5] / MeasStats.samples[5] * 100))
     time = repeats[len(repeats) // 2]
     return time
 
@@ -60,6 +74,17 @@ def measureMetrics(runFunc, size):
         sorted([m[i] for m in measurements])[len(measurements) // 2]
         for i in range(len(measurements[0]))
     ]
+
+
+
+
+    for i in range(len(measurements[0])):
+        sortedRange = sorted( [m[i] for m in measurements] )
+        ape = abs(sortedRange[0] - sortedRange[-1]) / medians[i]
+        MeasStats.add(i, ape)
+        #print( "{:12.2f} {:12.2f} {:5.2f} {:5.2f} {:5.2f}".format( sortedRange[0], sortedRange[-1], ape, MeasStats.maxApe[i]*100, MeasStats.meanApe[i] / MeasStats.samples[i]*100))
+
+
 
     return (
         medians[0] / lupCount,
