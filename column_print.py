@@ -20,6 +20,8 @@ def stringKey(self, key, labelWidth, valueWidth, siunit):
 
     prec = 0 if isinstance(value, int) else 1 if value < 50 else 0
 
+    labelWidth = max(len(key), labelWidth)
+
     return "{:{labelWidth}}: {:{valueWidth}.{prec}f} {:7}".format(
             str(key),
             value,
