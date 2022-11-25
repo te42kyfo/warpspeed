@@ -7,7 +7,7 @@ import sympy as sp
 
 
 class WarpspeedKernel:
-    def __init__(self, loadExprs, storeExprs, domain, registers):
+    def __init__(self, loadExprs, storeExprs, domain, registers, flops=0):
         self.registers = registers
         self.loadExprs3D = {field : [(expr, "0", "0") for expr in loadExprs[field]] for field in loadExprs}
         self.storeExprs3D = {field : [(expr, "0", "0") for expr in storeExprs[field]] for field in storeExprs}
@@ -18,6 +18,8 @@ class WarpspeedKernel:
 
         self.loadExprs = sympifyExprs(loadExprs)
         self.storeExprs = sympifyExprs(storeExprs)
+
+        self.flops = flops
 
     def getLoadExprs3D(self):
         return self.loadExprs3D
@@ -33,11 +35,11 @@ class WarpspeedKernel:
 
 
 class WarpspeedGridKernel:
-    def __init__(self, loadExprs3D, storeExprs3D, domain, registers, alignment):
+    def __init__(self, loadExprs3D, storeExprs3D, domain, registers, alignment, flops=0):
         self.registers = registers
         self.loadExprs3D = loadExprs3D
         self.storeExprs3D = storeExprs3D
-
+        self.flops = flops
         def linearizeExpr(expr3D):
             return sp.lambdify( sp.symbols("tidx, tidy, tidz, blockIdx, blockIdy, blockIdz, blockDimx, blockDimy, blockDimz"),
                                 sp.sympify( "{5} + ({0}) + ({1}) * {3} + ({2}) * {4}".format( *expr3D, domain[0], domain[1]*domain[0], alignment)))
@@ -46,6 +48,8 @@ class WarpspeedGridKernel:
 
         self.loadExprs = linearizeFields(loadExprs3D)
         self.storeExprs = linearizeFields(storeExprs3D)
+
+        self.flops = flops
 
     def getLoadExprs3D(self):
         return self.loadExprs3D

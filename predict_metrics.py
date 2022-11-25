@@ -91,6 +91,7 @@ class LaunchConfig:
         self.truncatedWaveSize = tuple(min(4, c) for c in self.waveSize)
         self.threadsPerBlock = block[0] * block[1] * block[2]
         self.lupsPerThread = reduce(mul, blocking_factors)
+        self.flops = kernel.flops
         return self
 
     def fromDict(values):
@@ -392,6 +393,12 @@ class DerivedMetrics:
                 [self.perfL1Pheno, self.perfL2Pheno, self.perfMemPheno]
             )
 
+        if lc.flops > 0:
+            for a in dir(self):
+                if a.startswith("perf"):
+                    self.__dict__[a] = getattr(self, a) * lc.flops
+
+
     def stringKey(self, key, labelWidth, valueWidth):
         kB = key == "smL1Alloc" or key == "waveL2Alloc"
         if key in self.__dict__:
@@ -429,15 +436,23 @@ class DerivedMetrics:
                 ("L2Store", "B/Lup"),
                 ("memStoreV1", "B/Lup"),
                 ("memStoreV2", "B/Lup"),
-            ],
-            [
+            ]]
+        if self.lc.flops == 0:
+            columns.append([
                 ("L1Cycles", "cyc"),
                 ("perfMemV3", "GLups/s"),
                 ("perfL2V2", "GLups/s"),
                 ("perfL1", "GLups/s"),
                 ("perfV3", "GLups/s"),
-            ],
-        ]
+            ])
+        else:
+            columns.append([
+                ("L1Cycles", "cyc"),
+                ("perfMemV3", "GFlop/s"),
+                ("perfL2V2", "GFlop/s"),
+                ("perfL1", "GFlop/s"),
+                ("perfV3", "GFlop/s"),
+            ])
 
         return columnPrint(self, columns)
 
