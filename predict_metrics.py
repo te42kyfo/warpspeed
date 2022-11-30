@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from warpspeedkernel import *
 from griditeration import *
 from volumes_isl import *
 from volumes_isl3d import *
@@ -111,27 +112,36 @@ class BasicMetrics:
     def compute(lc, device, kernel):
         self = BasicMetrics()
         self.L1Cycles = getL1Cycles(
-            lc.block, lc.truncatedWaveSize, {**kernel.genLoads(), **kernel.genStores()}
+            lc.block,
+            lc.truncatedWaveSize,
+            [
+                [a]
+                for f in kernel.loadFields + kernel.storeFields
+                for a in f.linearAddresses
+            ],
         )
+        linearLoadAddresses = [ l.linearAddresses for l in kernel.loadFields  ]
+        linearStoreAddresses = [ l.linearAddresses for l in kernel.storeFields  ]
+
         self.blockL1LoadAlloc = max(
             1,
             getL1AllocatedLoadBlockVolume(
-                lc.block, lc.truncatedWaveSize, kernel.genLoads()
-            ),
+                lc.block, lc.truncatedWaveSize, linearLoadAddresses
+            )
         )
         self.blockL1Load = max(
-            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, kernel.genLoads())
+            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, linearLoadAddresses)
         )
-        self.warpL1Load = max(1, getL1WarpLoadVolume(lc.block, kernel.genLoads()))
+        self.warpL1Load = max(1, getL1WarpLoadVolume(lc.block, linearLoadAddresses))
         self.blockL2Load = max(
             1,
             getL2LoadBlockVolume(
-                lc.block, lc.truncatedWaveSize, kernel.genLoads(), device.L2FetchSize
+                lc.block, lc.truncatedWaveSize, linearLoadAddresses, device.L2FetchSize
             ),
         )
         self.blockL2Store = max(
-            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, kernel.genStores())
-        )
+            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, linearStoreAddresses)
+            )
         # self.waveMemLoadISL, self.waveMemLoadOld, self.waveMemOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genLoadExprs(), [0,0,0] + lc.domain)
         # self.waveMemStoreISL, self.waveMemStoreOld, self.waveMemStoreOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genStoreExprs(), [0,0,0] + lc.domain)
 
@@ -143,8 +153,8 @@ class BasicMetrics:
             self.waveMemStoreOverlap,
             self.waveValidCells,
         ) = getMemBlockVolumeISL3D(
-            kernel.getLoadExprs3D(),
-            kernel.getStoreExprs3D(),
+            kernel.loadFields,
+            kernel.storeFields,
             device,
             lc.block,
             lc.grid,
@@ -155,7 +165,7 @@ class BasicMetrics:
         self.TLBpages = getWaveLoadTLBPages(
             lc.block,
             lc.waveSize,
-            {**kernel.genLoads(), **kernel.genStores()},
+            linearLoadAddresses + linearStoreAddresses,
             2 * 1024 * 1024,
         )
         return self
@@ -399,7 +409,6 @@ class DerivedMetrics:
                 if a.startswith("perf"):
                     self.__dict__[a] = getattr(self, a) * lc.flops
 
-
     def stringKey(self, key, labelWidth, valueWidth):
         kB = key == "smL1Alloc" or key == "waveL2Alloc"
         if key in self.__dict__:
@@ -450,13 +459,15 @@ class DerivedMetrics:
                 ]
             )
         else:
-            columns.append([
-                ("L1Cycles", "cyc"),
-                ("perfMemV3", "GFlop/s"),
-                ("perfL2V2", "GFlop/s"),
-                ("perfL1", "GFlop/s"),
-                ("perfV3", "GFlop/s"),
-            ])
+            columns.append(
+                [
+                    ("L1Cycles", "cyc"),
+                    ("perfMemV3", "GFlop/s"),
+                    ("perfL2V2", "GFlop/s"),
+                    ("perfL1", "GFlop/s"),
+                    ("perfV3", "GFlop/s"),
+                ]
+            )
 
         return columnPrint(self, columns)
 

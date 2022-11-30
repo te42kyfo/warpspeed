@@ -24,7 +24,7 @@ class CL32Visitor:
         self.CLs = 0
 
     def count(self, addresses):
-        self.CLs += np.unique(addresses // 4).size
+        self.CLs += np.unique(addresses // 32).size
 
 
 class CL64Visitor:
@@ -32,7 +32,7 @@ class CL64Visitor:
         self.CLs = 0
 
     def count(self, addresses):
-        self.CLs += np.unique(addresses // 8).size
+        self.CLs += np.unique(addresses // 64).size
 
 
 class CL128Visitor:
@@ -40,7 +40,7 @@ class CL128Visitor:
         self.CLs = 0
 
     def count(self, addresses):
-        self.CLs += np.unique(addresses // 16).size
+        self.CLs += np.unique(addresses // 128).size
 
 
 class PageVisitor:
@@ -49,21 +49,21 @@ class PageVisitor:
         self.pages = 0
 
     def count(self, addresses):
-        self.pages += np.unique(addresses // (self.pageSize/8)).size
+        self.pages += np.unique(addresses // (self.pageSize)).size
 
 class L1thruVisitor:
     def __init__(self):
         self.cycles = 0
 
     def count(self, laneAddresses):
-        addresses = list(set(laneAddresses))
+        addresses = list(set([l // 8 for l in laneAddresses]))
         banks = [0] * 16
         maxCycles = 0
         for a in addresses:
             bank = int(a) % 16
             banks[bank] += 1
             maxCycles = max(maxCycles, banks[bank])
-        self.cycles += max(maxCycles,  np.unique(laneAddresses // 128).size)
+        self.cycles += max(maxCycles,  np.unique(laneAddresses // 1024).size)
 
 
 def gridIteration(fields, innerSize, outerSize, visitor):
@@ -73,11 +73,10 @@ def gridIteration(fields, innerSize, outerSize, visitor):
     idz = np.arange(0, innerSize[2], dtype=np.int32)
     x, y, z = np.meshgrid(idx, idy, idz)
 
-
     for field in fields:
         for outerId in np.ndindex(outerSize):
             addresses = np.empty(0)
-            for addressLambda in fields[field]:
+            for addressLambda in field:
                 addresses = np.concatenate(
                     (addresses, addressLambda(x, y, z, *outerId, *innerSize).ravel())
                 )
@@ -89,6 +88,7 @@ def getL2LoadBlockVolume(block, grid, loadAddresses, fetchSize):
         visitor = CL32Visitor()
     elif fetchSize == 64:
         visitor = CL64Visitor()
+
 
     gridIteration(loadAddresses, block, grid, visitor)
     return visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
@@ -120,13 +120,13 @@ def getL2StoreBlockVolume(block, grid, storeAddresses):
 
     outerSize = tuple(grid[i] * block[i] // warp[i] for i in range(0, 3))
 
-    seperatedFieldAccesses = dict()
+    seperatedStoreAddresses = []
     for field in storeAddresses:
-        for address in storeAddresses[field]:
-            seperatedFieldAccesses[address] = [address]
+        for address in field:
+            seperatedStoreAddresses.append([address])
 
     visitor = CL32Visitor()
-    gridIteration(seperatedFieldAccesses, warp, outerSize, visitor)
+    gridIteration(seperatedStoreAddresses, warp, outerSize, visitor)
     return visitor.CLs * 32 / grid[0] / grid[1] / grid[2]
 
 
@@ -136,12 +136,7 @@ def getL1Cycles(block, grid, loadStoreAddresses):
     outerSize = tuple(grid[i] * block[i] // halfWarp[i] for i in range(0, 3))
     visitor = L1thruVisitor()
 
-    seperatedFieldAccesses = dict()
-    for field in loadStoreAddresses:
-        for address in loadStoreAddresses[field]:
-            seperatedFieldAccesses[address] = [address]
-
-    gridIteration(seperatedFieldAccesses, halfWarp, outerSize, visitor)
+    gridIteration(loadStoreAddresses, halfWarp, outerSize, visitor)
 
     return visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2] * 2
 

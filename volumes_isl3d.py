@@ -6,28 +6,29 @@ from math import ceil, exp
 
 
 def getMemBlockVolumeISL3D(
-        loadExprs, storeExprs, device, blockSize, grid, validDomain, waveBlockCount
+        loadFields, storeFields, device, blockSize, grid, validDomain, waveBlockCount
 ):
 
     t1 = time.process_time()
-    def getAccessMap(exprs):
-        accessMaps = {}
-        for field in exprs:
-            accessMaps[field] = None
-            for access in exprs[field]:
-                mapstring = "{{[tidx, tidy, tidz] -> {0}[ax, ay, az] :   ax = floor(({1})/4) and ay = {2} and az = {3} }}".format(
-                    str(field), *[str(a) for a in access]
+    def getAccessMap(fields):
+        accessMaps = []
+        for field in fields:
+            accessMap = None
+            for access in field.NDAddresses:
+                mapstring = "{{[tidx, tidy, tidz] -> {0}[ax, ay, az] : ax = floor(({1}) / {4}) and ay = {2} and az = {3} }}".format(
+                    field.name, *[str(a) for a in access], 32 // field.datatype
                 )
-                if accessMaps[field] is None:
-                    accessMaps[field] = isl.BasicMap(mapstring)
+                if accessMap is None:
+                    accessMap = isl.BasicMap(mapstring)
                 else:
-                    accessMaps[field] = accessMaps[field].union(isl.BasicMap(mapstring))
+                    accessMap = accessMap.union(isl.BasicMap(mapstring))
 
-            accessMaps[field].coalesce()
+            accessMap.coalesce()
+            accessMaps.append(accessMap)
         return accessMaps
 
-    loadAccessMaps = getAccessMap(loadExprs)
-    storeAccessMaps = getAccessMap(storeExprs)
+    loadAccessMaps = getAccessMap(loadFields)
+    storeAccessMaps = getAccessMap(storeFields)
 
     if validDomain is None:
         validDomain = [0, 0, 0] + [grid[i] * blockSize[i] for i in range(3)]
@@ -107,30 +108,33 @@ def getMemBlockVolumeISL3D(
 
 
     VLoadNew = 0
-    currLoadAddressSets = {}
-    for field in loadAccessMaps:
-        currLoadAddressSets[field] = currThreadSet.apply(loadAccessMaps[field])
-        VLoadNew += currLoadAddressSets[field].count_val().to_python() * 32
+    currLoadAddressSets = []
+    for accessMap in loadAccessMaps:
+        loadAddressSet = currThreadSet.apply(accessMap)
+        currLoadAddressSets.append( loadAddressSet )
+        VLoadNew += loadAddressSet.count_val().to_python() * 32
 
     VStoreNew = 0
-    currStoreAddressSets = {}
-    for field in storeAccessMaps:
-        currStoreAddressSets[field] = currThreadSet.apply(storeAccessMaps[field])
-        VStoreNew += currStoreAddressSets[field].count_val().to_python() * 32
+    currStoreAddressSets = []
+    for accessMap in storeAccessMaps:
+        storeAddressSet = currThreadSet.apply(accessMap)
+        currStoreAddressSets.append(storeAddressSet)
+        VStoreNew += storeAddressSet.count_val().to_python() * 32
 
 
     def getVolumes(currAddressSets, prevThreadSet, accessMaps):
         Vold = 0
         Voverlap = 0
 
-        for field in accessMaps:
+        for field in range(len(currAddressSets)):
 
             prevAddresses = prevThreadSet.apply(accessMaps[field])
-
             Vold += prevAddresses.count_val().to_python()
+            print(currAddressSets[field])
             Voverlap += (
                 currAddressSets[field].intersect(prevAddresses).count_val().to_python()
             )
+            print(Voverlap)
 
             currAddressSets[field] = currAddressSets[field].subtract(prevAddresses)
 

@@ -4,50 +4,37 @@ from predict_metrics import *
 import sympy as sp
 
 
+class Field:
+    def __init__(self, name, addresses, datatype, dimensions, alignment):
+        self.name = name
+        self.NDAddresses = addresses
+
+        self.datatype = datatype
+        self.dimensions = dimensions
+        self.alignment = alignment
+
+        def linearizeExpr(expr3D):
+            exprString = "({5} + {0} + ({1}) * {3} + ({2}) * {4}) * {6}".format(
+                    *expr3D, self.dimensions[0], self.dimensions[1] * self.dimensions[0], self.alignment, self.datatype
+                )
+            linExpr = sp.sympify(exprString)
+            return sp.lambdify(
+                sp.symbols(
+                    "tidx, tidy, tidz, blockIdx, blockIdy, blockIdz, blockDimx, blockDimy, blockDimz"
+                ),
+                linExpr,
+            )
+
+        self.linearAddresses = [linearizeExpr(a) for a in addresses]
 
 
 class WarpspeedKernel:
-    def __init__(self, loadExprs, storeExprs, domain, registers, flops=0):
+    def __init__(self, loadFields, storeFields, registers, flops=0):
         self.registers = registers
-        self.loadExprs3D = {field : [(expr, "0", "0") for expr in loadExprs[field]] for field in loadExprs}
-        self.storeExprs3D = {field : [(expr, "0", "0") for expr in storeExprs[field]] for field in storeExprs}
-
-        def sympifyExprs(exprs):
-            return {field : [sp.lambdify( sp.symbols("tidx, tidy, tidz, blockIdx, blockIdy, blockIdz, blockDimx, blockDimy, blockDimz"),
-                                sp.sympify( expr)) for expr in exprs[field]] for field in exprs}
-
-        self.loadExprs = sympifyExprs(loadExprs)
-        self.storeExprs = sympifyExprs(storeExprs)
-
         self.flops = flops
 
-    def getLoadExprs3D(self):
-        return self.loadExprs3D
-
-    def getStoreExprs3D(self):
-        return self.storeExprs3D
-
-    def genLoads(self):
-        return self.loadExprs
-
-    def genStores(self):
-        return self.storeExprs
-
-
-class WarpspeedGridKernel:
-    def __init__(self, loadExprs3D, storeExprs3D, domain, registers, alignment, flops=0):
-        self.registers = registers
-        self.loadExprs3D = loadExprs3D
-        self.storeExprs3D = storeExprs3D
-        self.flops = flops
-        def linearizeExpr(expr3D):
-            return sp.lambdify( sp.symbols("tidx, tidy, tidz, blockIdx, blockIdy, blockIdz, blockDimx, blockDimy, blockDimz"),
-                                sp.sympify( "{5} + ({0}) + ({1}) * {3} + ({2}) * {4}".format( *expr3D, domain[0], domain[1]*domain[0], alignment)))
-        def linearizeFields(exprs):
-            return {field : [ linearizeExpr(expr) for expr in exprs[field]  ] for field in exprs.keys()}
-
-        self.loadExprs = linearizeFields(loadExprs3D)
-        self.storeExprs = linearizeFields(storeExprs3D)
+        self.loadFields = loadFields
+        self.storeFields = storeFields
 
         self.flops = flops
 
