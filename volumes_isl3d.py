@@ -130,11 +130,9 @@ def getMemBlockVolumeISL3D(
 
             prevAddresses = prevThreadSet.apply(accessMaps[field])
             Vold += prevAddresses.count_val().to_python()
-            print(currAddressSets[field])
             Voverlap += (
                 currAddressSets[field].intersect(prevAddresses).count_val().to_python()
             )
-            print(Voverlap)
 
             currAddressSets[field] = currAddressSets[field].subtract(prevAddresses)
 

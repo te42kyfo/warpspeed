@@ -15,8 +15,12 @@ class Field:
 
         def linearizeExpr(expr3D):
             exprString = "({5} + {0} + ({1}) * {3} + ({2}) * {4}) * {6}".format(
-                    *expr3D, self.dimensions[0], self.dimensions[1] * self.dimensions[0], self.alignment, self.datatype
-                )
+                *expr3D,
+                self.dimensions[0],
+                self.dimensions[1] * self.dimensions[0],
+                self.alignment,
+                self.datatype
+            )
             linExpr = sp.sympify(exprString)
             return sp.lambdify(
                 sp.symbols(
@@ -25,7 +29,15 @@ class Field:
                 linExpr,
             )
 
-        self.linearAddresses = [linearizeExpr(a) for a in addresses]
+        # Extend addresses to 3D with "0" as address expressions
+        self.NDAddresses = [
+            tuple(list(a) + ["0"] * (3 - len(a)))
+            if not isinstance(a, str)
+            else (a, "0", "0")
+            for a in self.NDAddresses
+        ]
+
+        self.linearAddresses = [linearizeExpr(a) for a in self.NDAddresses]
 
 
 class WarpspeedKernel:

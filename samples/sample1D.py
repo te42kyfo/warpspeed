@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+import sys
+
+sys.path.append("..")
+
 from predict_metrics import *
 import sympy as sp
 from warpspeedkernel import *
@@ -12,11 +16,17 @@ device = DeviceAmpere()
 
 # Each thread loads and stores a 3D vector. E.g. normalize and scale 3D vectors and store their lengths to another vector.
 
+
 kernel = WarpspeedKernel(
-    {"A": ["tidx*3 + 0", "tidx*3 + 1", "tidx*3 + 2"], "B": ["tidx"]},
-    {"C": ["tidx*3 + 0", "tidx*3 + 1", "tidx*3 + 2"], "D": ["tidx"]},
-    domain,
-    32,
+    [
+        Field("A", ["tidx*3 + 0", "tidx*3 + 1", "tidx*3 + 2"], 8, domain, 0),
+        Field("B", ["tidx"], 8, domain, 0),
+    ],
+    [
+        Field("D", ["tidx*3 + 0", "tidx*3 + 1", "tidx*3 + 2"], 8, domain, 0),
+        Field("B", ["tidx"], 8, domain, 0),
+    ],
+    32
 )
 
 lc = LaunchConfig.compute(kernel, blockSize, domain, blockingFactors, device)
