@@ -168,6 +168,7 @@ class PystencilsWarpSpeedField:
         self.linearAddresses = linearAddresses
         self.NDAddresses = NDAddresses
         self.datatype = datatype
+        self.multiplicity = 1
 
 
 class PyStencilsWarpSpeedKernel:

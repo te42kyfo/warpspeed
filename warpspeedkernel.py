@@ -5,13 +5,15 @@ import sympy as sp
 
 
 class Field:
-    def __init__(self, name, addresses, datatype, dimensions, alignment):
+    def __init__(self, name, addresses, datatype, dimensions, alignment, multiplicity=1):
         self.name = name
         self.NDAddresses = addresses
 
         self.datatype = datatype
         self.dimensions = dimensions
         self.alignment = alignment
+
+        self.multiplicity = multiplicity
 
         def linearizeExpr(expr3D):
             exprString = "({5} + {0} + ({1}) * {3} + ({2}) * {4}) * {6}".format(

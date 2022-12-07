@@ -121,36 +121,31 @@ class BasicMetrics:
         self.L1Cycles = getL1Cycles(
             lc.block,
             lc.truncatedWaveSize,
-            [
-                [a]
-                for f in kernel.loadFields + kernel.storeFields
-                for a in f.linearAddresses
-            ],
+            kernel.loadFields + kernel.storeFields
+
         )
-        linearLoadAddresses = [l.linearAddresses for l in kernel.loadFields]
-        linearStoreAddresses = [l.linearAddresses for l in kernel.storeFields]
+        #linearLoadAddresses = [ l.linearAddresses for l in kernel.loadFields  ]
+        #linearStoreAddresses = [ l.linearAddresses for l in kernel.storeFields  ]
 
         self.blockL1LoadAlloc = max(
             1,
             getL1AllocatedLoadBlockVolume(
-                lc.block, lc.truncatedWaveSize, linearLoadAddresses
-            ),
+                lc.block, lc.truncatedWaveSize, kernel.loadFields
+            )
         )
         self.blockL1Load = max(
-            1,
-            getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, linearLoadAddresses),
+            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, kernel.loadFields)
         )
-        self.warpL1Load = max(1, getL1WarpLoadVolume(lc.block, linearLoadAddresses))
+        self.warpL1Load = max(1, getL1WarpLoadVolume(lc.block, kernel.loadFields))
         self.blockL2Load = max(
             1,
             getL2LoadBlockVolume(
-                lc.block, lc.truncatedWaveSize, linearLoadAddresses, device.L2FetchSize
+                lc.block, lc.truncatedWaveSize, kernel.loadFields, device.L2FetchSize
             ),
         )
         self.blockL2Store = max(
-            1,
-            getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, linearStoreAddresses),
-        )
+            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, kernel.storeFields)
+            )
         # self.waveMemLoadISL, self.waveMemLoadOld, self.waveMemOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genLoadExprs(), [0,0,0] + lc.domain)
         # self.waveMemStoreISL, self.waveMemStoreOld, self.waveMemStoreOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genStoreExprs(), [0,0,0] + lc.domain)
 
@@ -174,7 +169,7 @@ class BasicMetrics:
         self.TLBpages = getWaveLoadTLBPages(
             lc.block,
             lc.waveSize,
-            linearLoadAddresses + linearStoreAddresses,
+            kernel.loadFields + kernel.storeFields,
             2 * 1024 * 1024,
         )
         return self
