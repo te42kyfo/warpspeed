@@ -11,7 +11,9 @@ device = DeviceAmpere()
 
 loads = [("tidx", "tidy", "tidz")]
 
-for i in range(4):
+stencilRange = 4
+
+for i in range(1, stencilRange + 1):
     loads.extend([("tidx+" + str(i), "tidy", "tidz"),
                   ("tidx-" + str(i), "tidy", "tidz"),
                   ("tidx", "tidy+" + str(i), "tidz"),
@@ -22,7 +24,7 @@ for i in range(4):
 
 kernel =  WarpspeedGridKernel({"A" : loads},
                               {"B" : [("tidx", "tidy", "tidz")]},
-                              domain, 32, 1)
+                              domain, 32, stencilRange)
 
 lc = LaunchConfig.compute(kernel, blockSize, domain, blockingFactors, device)
 basic = BasicMetrics.compute(lc, device, kernel)
