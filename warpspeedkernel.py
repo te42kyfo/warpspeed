@@ -13,7 +13,7 @@ class WarpspeedGridKernel:
 
         def linearizeExpr(expr3D):
             return sp.lambdify( sp.symbols("tidx, tidy, tidz, blockIdx, blockIdy, blockIdz, blockDimx, blockDimy, blockDimz"),
-                                sp.sympify( "{5} + {0} + {1} * {3} + {2} * {4}".format( *expr3D, domain[0], domain[1]*domain[0], alignment)))
+                                sp.sympify( "{5} + ({0}) + ({1}) * {3} + ({2}) * {4}".format( *expr3D, domain[0], domain[1]*domain[0], alignment)))
         def linearizeFields(exprs):
             return {field : [ linearizeExpr(expr) for expr in exprs[field]  ] for field in exprs.keys()}
 
