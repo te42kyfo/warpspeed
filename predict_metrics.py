@@ -385,9 +385,8 @@ class DerivedMetrics:
 
         if not meas is None:
             self.perfMemPheno = self.device.memBW / max(0.1, meas.memLoad + meas.memStore)
-            self.perfL2Pheno = min(
-                self.device.L2BW / max(0.1, meas.L2Load_tex), self.device.L2BW / max(0.1, meas.L2Store),
-            )
+            self.perfL2Pheno =  self.device.L2BW / max(0.1, meas.L2Load_tex + meas.L2Store)
+
             self.perfL1Pheno = (
                 self.device.smCount * self.device.clock / meas.L1Wavefronts
             )
