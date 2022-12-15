@@ -9,14 +9,14 @@ class MeasuredMetrics:
         (
             self.memLoad,
             self.memStore,
-            #self.L2Load,
-            #self.L2Store,
+            # self.L2Load,
+            # self.L2Store,
             self.L2Load_tex,
             self.L2Store,
-            #self.L2tex,
-            #self.L2ltc,
-            #self.L2total,
-            #self.L2tagRequests,
+            # self.L2tex,
+            # self.L2ltc,
+            # self.L2total,
+            # self.L2tagRequests,
             self.L1Wavefronts,
         ) = measureMetrics(runFunc, lc.domain)
 
@@ -32,29 +32,30 @@ class MeasuredMetrics:
         self.__dict__ = values
         return self
 
-    def stringKey(self, key, labelWidth, valueWidth):
-        kB = False
-        if key in self.__dict__:
-            string = "{:{labelWidth}}: {:{valueWidth}.1f}{:2} ".format(
-                str(key),
-                self.__dict__[key] / (1024 if kB else 1),
-                "kB" if kB else "",
-                labelWidth=labelWidth,
-                valueWidth=valueWidth,
-            )
-        else:
-            string = "{:{width}}".format(" ", width=labelWidth + valueWidth)
-        return string
+    # def stringKey(self, key, labelWidth, valueWidth):
+    #    kB = False
+    #    if key in self.__dict__:
+    #        string = "{:{labelWidth}}: {:{valueWidth}.1f}{:2} ".format(
+    #            str(key),
+    #            self.__dict__[key] / (1024 if kB else 1),
+    #            "kB" if kB else "",
+    #            labelWidth=labelWidth,
+    #            valueWidth=valueWidth,
+    #        )
+    #    else:
+    #        string = "{:{width}}".format(" ", width=labelWidth + valueWidth)
+    #    return string
 
     def __str__(self):
         columns = [
-            ["L2Load"],
-            ["L2Store"],
-            ["memLoad"],
-            ["memStore"],
-            ["lups"],
-            ["L1Wavefronts"],
-            ["L1Volume"],
+            [
+                ("L2Load_tex", "B"),
+                ("L2Store", "B"),
+                ("memLoad", "B"),
+                ("memStore", "B"),
+            ],
+            [("L1Wavefronts", ""),
+             ("lups", "Lup/s")],
         ]
 
         return columnPrint(self, columns)
@@ -62,48 +63,58 @@ class MeasuredMetrics:
 
 class ResultComparer:
     def __init__(self, meas, pred):
-        self.meas = meas
-        self.pred = pred
+        #for v in vars(meas):
+        #    setattr(self, v, getattr(meas, v))
 
-    def stringKey(self, key, labelWidth, valueWidth):
+        #for v in vars(pred):
+        #    setattr(self, v, getattr(pred, v))
 
-        if key.startswith("meas"):
-            return self.meas.stringKey(key[4:], labelWidth, valueWidth)
-        else:
-            return self.pred.stringKey(key, labelWidth, valueWidth)
-
-        #     value = self.meas.__dict__[key[4:]]if key[4:] in self.meas.__dict__ else None
-        # else:
-        #     value = getattr(self.pred, key)() if not getattr(self.pred, key, None) is None else None
-        # if not value is None:
-        #     return "{:{labelWidth}}: {:{valueWidth}.1f} {:2}   ".format(str(key), value / (1024 if kB else 1), "kB" if kB else "",
-        #                                                                        labelWidth=labelWidth, valueWidth=valueWidth, prec= 0 if kB else 1)
-        # else:
-        #     return "{:{width}}".format(" ", width=labelWidth+valueWidth+8)
+        self.m = meas
+        self.p = pred
 
     def __str__(self):
         columns = [
             [
-                "L1Cycles",
-                "L1Load",
-                "smL1Alloc",
-                "L1LoadEvicts",
-                "L2LoadV1",
-                "L2LoadV2",
-                "measL2Load_tex",
+                ("p.L1Cycles", ""),
+                ("p.L1Load", "B"),
+                ("p.smL1Alloc", "kB"),
+                ("p.L1LoadEvicts", "B"),
+                ("p.L2LoadV1", "B"),
+                ("p.L2LoadV2", "B"),
+                ("m.L2Load_tex", "B"),
             ],
             [
-                "memLoadOverlap[0]",
-                "memLoadEvicts",
-                "memLoadV1",
-                "memLoadV2",
-                "memLoadV3",
-                "memLoadV4",
-                "measmemLoad",
+                ("p.memLoadV1", "B"),
+                ("p.memLoadV2", "B"),
+                ("p.memLoadV3", "B"),
+                ("p.memLoadV4", "B"),
+                ("m.memLoad", "B"),
             ],
-            ["waveL2Alloc", "L2NewCoverage", "L2Store", "measL2Store"],
-            ["memStoreEvicts", "memStoreV1", "memStoreV2", "measmemStore"],
-            ["perfPheno", "perfV1", "perfV2", "perfV3", "perfV4", "measlups"],
+            [
+                ("p.memLoadOverlap[0]", "B"),
+                ("p.memLoadOverlap[1]", "B"),
+                ("p.waveL2Alloc", "MB"),
+                ("p.memLoadEvicts", "B"),
+                ("p.L2Store", "B"),
+                ("m.L2Store", "B"),
+            ],
+            [
+                ("p.basic.waveMemOld[0]", "MB"),
+                ("p.basic.waveMemOld[1]", "MB"),
+                ("p.memStoreEvicts", "B"),
+                ("p.memStoreV1", "B"),
+                ("p.memStoreV2", "B"),
+                ("m.memStore", "B"),
+            ],
+            [
+                ("p.perfL1", "GLup/s"),
+                ("p.perfL2V2", "GLup/s"),
+                ("p.perfMemV4", "GLup/s"),
+                ("p.perfV4", "GLup/s"),
+                ("p.perfPheno", "GLup/s"),
+                ("m.lups", "GLup/s"),
+                ("p.limPheno", ""),
+            ],
         ]
 
         return columnPrint(self, columns)

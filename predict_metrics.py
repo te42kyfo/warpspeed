@@ -101,8 +101,8 @@ class LaunchConfig:
 
     def __str__(self):
         columns = [
-            ["block", "grid", "waveSize", "truncatedWaveSize"],
-            ["blocking_factors", "threadsPerBlock", "blocksPerSM"],
+            [("block", ""), ("grid", ""), ("waveSize", ""), ("truncatedWaveSize", "")],
+            [("blocking_factors", ""), ("threadsPerBlock", ""), ("blocksPerSM", "")],
         ]
         return columnPrint(self, columns)
 
@@ -386,14 +386,16 @@ class DerivedMetrics:
         if not meas is None:
             self.perfMemPheno = self.device.memBW / max(0.1, meas.memLoad + meas.memStore)
             self.perfL2Pheno = min(
-                self.device.L2BW / max(0.1, meas.L2Load_tex), self.device.L2BW / max(0.1, meas.L2Store)
+                self.device.L2BW / max(0.1, meas.L2Load_tex), self.device.L2BW / max(0.1, meas.L2Store),
             )
-            self.perfL1Pheno = self.device.smCount * self.device.clock * 32 / meas.L1Wavefronts
+            self.perfL1Pheno = (
+                self.device.smCount * self.device.clock / meas.L1Wavefronts
+            )
             self.perfPheno, self.limPheno = selectLimiter(
                 [self.perfL1Pheno, self.perfL2Pheno, self.perfMemPheno]
             )
 
-        if lc.flops > 0:
+        if getattr(lc, "flops", 0) > 0:
             for a in dir(self):
                 if a.startswith("perf"):
                     self.__dict__[a] = getattr(self, a) * lc.flops
@@ -436,15 +438,18 @@ class DerivedMetrics:
                 ("L2Store", "B/Lup"),
                 ("memStoreV1", "B/Lup"),
                 ("memStoreV2", "B/Lup"),
-            ]]
-        if self.lc.flops == 0:
-            columns.append([
-                ("L1Cycles", "cyc"),
-                ("perfMemV3", "GLups/s"),
-                ("perfL2V2", "GLups/s"),
-                ("perfL1", "GLups/s"),
-                ("perfV3", "GLups/s"),
-            ])
+            ],
+        ]
+        if getattr(self.lc, "flops", 0) == 0:
+            columns.append(
+                [
+                    ("L1Cycles", "cyc"),
+                    ("perfMemV3", "GLups/s"),
+                    ("perfL2V2", "GLups/s"),
+                    ("perfL1", "GLups/s"),
+                    ("perfV3", "GLups/s"),
+                ]
+            )
         else:
             columns.append([
                 ("L1Cycles", "cyc"),
