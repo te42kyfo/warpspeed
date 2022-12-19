@@ -97,10 +97,10 @@ def getMemBlockVolumeISL3D(
     )
 
     print("current thread set: \n" + str(currThreadSet))
-    print("X,Y,Z plane thread sets:")
-    print(xplaneThreadSet)
-    print(yplaneThreadSet)
-    print(zplaneThreadSet)
+    #print("X,Y,Z plane thread sets:")
+    #print(xplaneThreadSet)
+    #print(yplaneThreadSet)
+    #print(zplaneThreadSet)
     print()
 
     cellCount = currThreadSet.count_val().to_python()
@@ -147,18 +147,18 @@ def getMemBlockVolumeISL3D(
 
 
     t2 = time.process_time()
-    print(
-        "{:4.1f},   {:4.1f}   {:4.1f}   {:4.1f},   {:5.1f} {:5.1f} {:5.1f},  {:6.1f} ms".format(
-            VLoadNew / cellCount,
-            VLoadOverlapX / cellCount,
-            VLoadOverlapY / cellCount,
-            VLoadOverlapZ / cellCount,
-            (VLoadOldX + VStoreOldX) / 1024 / 1024,
-            (VLoadOldY + VStoreOldY) / 1024 / 1024,
-            (VLoadOldZ + VStoreOldZ) / 1024 / 1024,
-            (t2 - t1) * 1000,
-        )
-    )
+    #print(
+    #    "{:4.1f},   {:4.1f}   {:4.1f}   {:4.1f},   {:5.1f} {:5.1f} {:5.1f},  {:6.1f} ms".format(
+    #        VLoadNew / cellCount,
+    #        VLoadOverlapX / cellCount,
+    #        VLoadOverlapY / cellCount,
+    #        VLoadOverlapZ / cellCount,
+    #        (VLoadOldX + VStoreOldX) / 1024 / 1024,
+    #        (VLoadOldY + VStoreOldY) / 1024 / 1024,
+    #        (VLoadOldZ + VStoreOldZ) / 1024 / 1024,
+    #        (t2 - t1) * 1000,
+    #    )
+    #)
 
     concurrentThreadCount = (
         blockSize[0]
@@ -186,18 +186,18 @@ def getMemBlockVolumeISL3D(
         waveBlockCount * (blockSize[0] * blockSize[1] * blockSize[2]) / cellCount
     )
 
-    print(
-        "Vnew : {:5.3f} -> {:5.3f},  {:5.3f} -> {:5.3f}".format(
-            VLoadNew / 1024 / 1024, VLoadNew * VnewFactor / 1024 / 1024,
-            VStoreNew / 1024 / 1024, VStoreNew * VnewFactor / 1024 / 1024
-        )
-    )
+    #print(
+    #    "Vnew : {:5.3f} -> {:5.3f},  {:5.3f} -> {:5.3f}".format(
+    #        VLoadNew / 1024 / 1024, VLoadNew * VnewFactor / 1024 / 1024,
+    #        VStoreNew / 1024 / 1024, VStoreNew * VnewFactor / 1024 / 1024
+    #    )
+    #)
 
     roverX = rover(0, VLoadOldX + VStoreOldX)
     roverY = rover(0, VLoadOldY + VStoreOldY)
     roverZ = rover(0, VLoadOldZ + VStoreOldZ)
 
-    print( "Coverages : {:5.3f} {:5.3f} {:5.3f}".format(roverX,roverY,roverZ))
+    #print( "Coverages : {:5.3f} {:5.3f} {:5.3f}".format(roverX,roverY,roverZ))
 
 
 
