@@ -30,12 +30,14 @@ def search_resolved_field_accesses_in_ast(ast):
         visit(eq, read_accesses, write_accesses)
     return read_accesses, write_accesses
 
+
 def getFieldExprs(kernel):
 
     reads, writes = search_resolved_field_accesses_in_ast(kernel)
 
     def getFieldsDict(accesses):
         fields = dict()
+        fieldDTs = dict()
         addresses = []
         for access in accesses:
             expr = access.indices[0]
@@ -66,22 +68,31 @@ def getFieldExprs(kernel):
             field = substitutedAddress.atoms(
                 ps.kernelparameters.FieldPointerSymbol
             ).pop()
+
+            dtype = field.dtype.base_type._dtype.itemsize
+
+            substitutedAddress *= dtype
+
             substitutedAddress = substitutedAddress.subs(
                 zip(
                     substitutedAddress.atoms(ps.kernelparameters.FieldPointerSymbol),
-                    [32 - access.field.byte_offset // 8],
+                    [32 - access.field.byte_offset // dtype],
                 )
             )
 
-            if field not in fields:
-                fields[field] = []
-            fields[field].append(substitutedAddress)
-        return fields
+            if field.field_name not in fields:
+                fields[field.field_name] = []
 
-    storeFields = getFieldsDict(writes)
-    loadFields = getFieldsDict(reads)
+            fields[field.field_name].append(substitutedAddress)
+            fieldDTs[field.field_name] = dtype
 
-    return storeFields, loadFields
+        return fields, fieldDTs
+
+    storeFields, storeDTs = getFieldsDict(writes)
+    loadFields, loadDTs = getFieldsDict(reads)
+
+    return loadFields, storeFields, loadDTs, storeDTs
+
 
 def getFieldExprs3D(ast):
 
@@ -94,12 +105,22 @@ def getFieldExprs3D(ast):
 
             field = str(access.field)
             if len(access.idx_coordinate_values) > 0:
-               field += "_" + str(access.idx_coordinate_values[0])
+                field += "_" + str(access.idx_coordinate_values[0])
             if field not in fields:
                 fields[field] = []
-            fields[field].append(("tidx * {} + {}".format(ast.indexing._blocking_factors[0], access.offsets[0]),
-                                  "tidy * {} + {}".format(ast.indexing._blocking_factors[1], access.offsets[1]),
-                                  "tidz * {} + {}".format(ast.indexing._blocking_factors[2], access.offsets[2])))
+            fields[field].append(
+                (
+                    "tidx * {} + {}".format(
+                        ast.indexing._blocking_factors[0], access.offsets[0]
+                    ),
+                    "tidy * {} + {}".format(
+                        ast.indexing._blocking_factors[1], access.offsets[1]
+                    ),
+                    "tidz * {} + {}".format(
+                        ast.indexing._blocking_factors[2], access.offsets[2]
+                    ),
+                )
+            )
         return fields
 
     return getFieldsDict(reads), getFieldsDict(writes)
@@ -142,52 +163,36 @@ def simplifyExprs(fields):
 
 
 class PystencilsWarpSpeedField:
-    def __init__(self, name, linearAddresses, NDAddresses, datatype, dimensions, alignment):
+    def __init__(self, name, linearAddresses, NDAddresses, datatype):
         self.name = name
         self.linearAddresses = linearAddresses
         self.NDAddresses = NDAddresses
         self.datatype = datatype
-        self.dimensions = dimensions
-        self.alignment = alignment
+
 
 class PyStencilsWarpSpeedKernel:
-    def __init__(self, ast):
-        self.storeExprs, self.loadExprs = getFieldExprs(ast)
-
-        print(self.loadExprs)
-
-        self.storeFields = lambdifyExprs(self.storeExprs)
-        self.loadFields = lambdifyExprs(self.loadExprs)
-        #self.storeExprs = simplifyExprs(self.storeExprs)
-        #self.loadExprs = simplifyExprs(self.loadExprs)
+    def __init__(self, ast, registers=32):
+        self.loadExprs, self.storeExprs, loadDTs, storeDTs = getFieldExprs(ast)
+        self.storeLambdas = lambdifyExprs(self.storeExprs)
+        self.loadLambdas = lambdifyExprs(self.loadExprs)
 
         self.loadExprs3D, self.storeExprs3D = getFieldExprs3D(ast)
 
-        print(self.loadExprs3D)
-        print()
+        self.loadFields = [
+            PystencilsWarpSpeedField(
+                f, self.loadLambdas[f], self.loadExprs3D[f], loadDTs[f]
+            )
+            for f in self.loadLambdas
+        ]
+        self.storeFields = [
+            PystencilsWarpSpeedField(
+                f, self.storeLambdas[f], self.storeExprs3D[f], storeDTs[f]
+            )
+            for f in self.storeLambdas
+        ]
 
         operation_count = count_operations_in_ast(ast)
 
         self.flops = operation_count["adds"] + operation_count["muls"]
-
+        self.registers = registers
         self.ast = ast
-
-    def getLoadExprs3D(self):
-        return self.loadExprs3D
-
-    def getStoreExprs3D(self):
-        return self.storeExprs3D
-
-
-
-    def genLoads(self):
-        return self.loadFields
-
-    def genStores(self):
-        return self.storeFields
-
-    #def genLoadExprs(self):
-    #    return self.loadExprs
-
-    #def genStoreExprs(self):
-    #    return self.storeExprs
