@@ -84,7 +84,14 @@ class LaunchConfig:
         self.device = device.name
 
         self.blocksPerSM = predict.getBlocksPerSM(block, kernel.registers)
-
+        if self.blocksPerSM == 0:
+            print(
+                "Warning: configuration with "
+                + str(block[0] * block[1] * block[2])
+                + " threads per block and "
+                + str(kernel.registers)
+                + " cannot be executed"
+            )
         self.waveSize = predict.getConcurrentGrid(
             self.blocksPerSM * device.smCount, self.grid
         )
@@ -120,17 +127,18 @@ class BasicMetrics:
                 for a in f.linearAddresses
             ],
         )
-        linearLoadAddresses = [ l.linearAddresses for l in kernel.loadFields  ]
-        linearStoreAddresses = [ l.linearAddresses for l in kernel.storeFields  ]
+        linearLoadAddresses = [l.linearAddresses for l in kernel.loadFields]
+        linearStoreAddresses = [l.linearAddresses for l in kernel.storeFields]
 
         self.blockL1LoadAlloc = max(
             1,
             getL1AllocatedLoadBlockVolume(
                 lc.block, lc.truncatedWaveSize, linearLoadAddresses
-            )
+            ),
         )
         self.blockL1Load = max(
-            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, linearLoadAddresses)
+            1,
+            getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, linearLoadAddresses),
         )
         self.warpL1Load = max(1, getL1WarpLoadVolume(lc.block, linearLoadAddresses))
         self.blockL2Load = max(
@@ -140,8 +148,9 @@ class BasicMetrics:
             ),
         )
         self.blockL2Store = max(
-            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, linearStoreAddresses)
-            )
+            1,
+            getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, linearStoreAddresses),
+        )
         # self.waveMemLoadISL, self.waveMemLoadOld, self.waveMemOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genLoadExprs(), [0,0,0] + lc.domain)
         # self.waveMemStoreISL, self.waveMemStoreOld, self.waveMemStoreOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genStoreExprs(), [0,0,0] + lc.domain)
 
@@ -201,7 +210,6 @@ class BasicMetrics:
 
     def html(self):
 
-        htmlString = "<table><tr>"
 
         highCount = lambda v: "{:.0f}".format(v)
         smallCount = lambda v: "{:.1f}".format(v)
@@ -394,8 +402,12 @@ class DerivedMetrics:
         )
 
         if not meas is None:
-            self.perfMemPheno = self.device.memBW / max(0.1, meas.memLoad + meas.memStore)
-            self.perfL2Pheno =  self.device.L2BW / max(0.1, meas.L2Load_tex + meas.L2Store)
+            self.perfMemPheno = self.device.memBW / max(
+                0.1, meas.memLoad + meas.memStore
+            )
+            self.perfL2Pheno = self.device.L2BW / max(
+                0.1, meas.L2Load_tex + meas.L2Store
+            )
 
             self.perfL1Pheno = (
                 self.device.smCount * self.device.clock / meas.L1Wavefronts
@@ -424,7 +436,8 @@ class DerivedMetrics:
             string = "{:{width}}".format(" ", width=labelWidth + valueWidth + 5)
         return string
 
-    def __str__(self):
+
+    def columns(self):
         columns = [
             [
                 ("L1Load", "B/Lup"),
@@ -468,50 +481,10 @@ class DerivedMetrics:
                     ("perfV3", "GFlop/s"),
                 ]
             )
+        return columns
 
-        return columnPrint(self, columns)
+    def __str__(self):
+        return columnPrint(self, self.columns())
 
     def html(self):
-
-        htmlString = "<table><tr>"
-
-        highCount = lambda v: "{:.0f}".format(v)
-        smallCount = lambda v: "{:.1f}".format(v)
-        kiloByte = lambda v: "{:.1f} kB".format(v / 1024)
-        manyByte = lambda v: "{:.0f} B".format(v)
-        fewByte = lambda v: "{:.1f} B".format(v)
-        gflops = lambda v: "{:.1f} GLups/s".format(v)
-
-        columns = [
-            [
-                ("L1Cycles", smallCount),
-                ("L1Load", fewByte),
-                ("smL1Alloc", kiloByte),
-                ("L1LoadEvicts", fewByte),
-                ("L2LoadV1", fewByte),
-                ("L2LoadV2", fewByte),
-            ],
-            [
-                ("memLoadOverlap[0]", smallCount),
-                ("memLoadEvicts", fewByte),
-                ("memLoadV1", fewByte),
-                ("memLoadV2", fewByte),
-                ("memLoadV3", fewByte),
-                ("memLoadV4", fewByte),
-            ],
-            [
-                ("waveL2Alloc", kiloByte),
-                ("L2Oversubscription", smallCount),
-                ("memStoreEvicts", fewByte),
-                ("L2Store", fewByte),
-                ("memStoreV1", fewByte),
-                ("memStoreV2", fewByte),
-            ],
-            [
-                ("perfV1", gflops),
-                ("perfV2", gflops),
-                ("perfV3", gflops),
-                ("perfV4", gflops),
-            ],
-        ]
-        return formattedHtmlColumnPrint(self, columns)
+        return htmlColumnPrint(self, self.columns())

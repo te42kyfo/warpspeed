@@ -162,22 +162,22 @@ class PS3DStencil:
         return kernel
     def getRunFunc(self, kernel):
 
-        if self.sh is None:
+        if self.dh is None:
             self.dh = ps.create_data_handling(
                 (self.size[0], self.size[1], self.size[2]), default_target="gpu"
             )
 
             self.gpu_dst_field = self.dh.add_array(
-                "dst", values_per_cell=1, ghost_layers=ghost_layers
+                "dst", values_per_cell=1, ghost_layers=self.ghost_layers
             )
             self.dh.fill("dst", 0.0, ghost_layers=True)
             self.gpu_src_field = self.dh.add_array(
-                "src", values_per_cell=1, ghost_layers=ghost_layers
+                "src", values_per_cell=1, ghost_layers=self.ghost_layers
             )
             self.dh.fill("src", 0.0, ghost_layers=True)
             self.dh.all_to_gpu()
 
-        return functools.partial(self.dh.run_kernel, kernel, self.gpu_dst_field, self.gpu_src_field)
+        return functools.partial(self.dh.run_kernel, kernel)
 
 
 class PS2DStencil:
