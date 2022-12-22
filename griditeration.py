@@ -78,7 +78,7 @@ def gridIteration(fields, innerSize, outerSize, visitor):
             addresses = np.empty(0)
             for addressLambda in field:
                 addresses = np.concatenate(
-                    (addresses, addressLambda(x, y, z, *outerId, *innerSize).ravel())
+                    (addresses, np.asarray(addressLambda(x, y, z, *outerId, *innerSize)).ravel())
                 )
             visitor.count(addresses)
 
