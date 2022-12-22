@@ -59,9 +59,10 @@ for vectorCount in [1, 4, 16]:
         loadFields.append(
             Field("idx", matrixLoads, 4, (domain[0], domain[1], domain[2] * 27), 0)
         )
-        storeFields.append(
-            Field("Y", [("tidx", "tidy", "tidz")], 8, [d + 2 for d in domain], 0)
-        )
+        for i in range(vectorCount):
+            storeFields.append(
+                Field("Y" + str(i), [("tidx", "tidy", "tidz")], 8, [d + 2 for d in domain], 0)
+            )
 
         kernel = WarpspeedKernel(loadFields, storeFields, 64, flops=27*2*vectorCount)
 
