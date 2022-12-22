@@ -39,24 +39,24 @@ for imageCount in [1, 8]:
                                     dimensions = (3,3,outputChannels),
                                     alignment = 0))
 
-            for image in range(imageCount):
-                loadFields.append(Field(name = "images",
+            loadFields.append(Field(name = "images",
                                     addresses = imageLoads,
                                     datatype = 4,
                                     dimensions = (*imageSize, inputChannels),
-                                    alignment = 0 ))
+                                    alignment = 0,
+                                    multiplicity=imageCount))
 
 
             outputStores = []
             for outputChannel in range(outputChannels):
                 outputStores.append(("tidx", "tidy", str(outputChannel) ))
 
-            for image in range(imageCount):
-                storeFields.append(Field(name = "output",
-                                        addresses = outputStores,
-                                        datatype = 4,
-                                        dimensions = (*imageSize, outputChannels),
-                                        alignment = 0))
+            storeFields.append(Field(name = "output",
+                                     addresses = outputStores,
+                                     datatype = 4,
+                                     dimensions = (*imageSize, outputChannels),
+                                     alignment = 0,
+                                     multiplicity=imageCount))
 
 
 
