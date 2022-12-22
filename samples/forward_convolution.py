@@ -66,4 +66,5 @@ for imageCount in [1, 8]:
             basic = BasicMetrics.compute(lc, device, kernel)
             pred = DerivedMetrics(lc, basic, device)
 
+            print(basic)
             print(pred)

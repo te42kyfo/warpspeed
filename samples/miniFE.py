@@ -71,4 +71,5 @@ for vectorCount in [1, 4, 16]:
 
         preds.append(pred)
 
+        print(basic)
         print(pred)
