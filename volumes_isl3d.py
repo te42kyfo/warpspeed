@@ -6,29 +6,24 @@ from math import ceil, exp
 
 
 def getMemBlockVolumeISL3D(
-        loadFields, storeFields, device, blockSize, grid, validDomain, waveBlockCount
+    loadFields, storeFields, device, blockSize, grid, validDomain, waveBlockCount
 ):
 
     t1 = time.process_time()
-    def getAccessMap(fields):
-        accessMaps = []
-        for field in fields:
-            accessMap = None
-            for access in field.NDAddresses:
-                mapstring = "{{[tidx, tidy, tidz] -> {0}[ax, ay, az] : ax = floor(({1}) / {4}) and ay = {2} and az = {3} }}".format(
-                    field.name, *[str(a) for a in access], 32 // field.datatype
-                )
-                if accessMap is None:
-                    accessMap = isl.BasicMap(mapstring)
-                else:
-                    accessMap = accessMap.union(isl.BasicMap(mapstring))
+    for field in loadFields + storeFields:
+        if not getattr(field, "accessMap", None) is None:
+            continue
+        field.accessMap = None
+        for access in field.NDAddresses:
+            mapstring = "{{[tidx, tidy, tidz] -> {0}[ax, ay, az] : ax = floor(({1}) / {4}) and ay = {2} and az = {3} }}".format(
+                field.name, *[str(a) for a in access], 32 // field.datatype
+            )
+            if field.accessMap is None:
+                field.accessMap = isl.BasicMap(mapstring)
+            else:
+                field.accessMap = field.accessMap.union(isl.BasicMap(mapstring))
 
-            accessMap.coalesce()
-            accessMaps.append(accessMap)
-        return accessMaps
-
-    loadAccessMaps = getAccessMap(loadFields)
-    storeAccessMaps = getAccessMap(storeFields)
+        field.accessMap.coalesce()
 
     if validDomain is None:
         validDomain = [0, 0, 0] + [grid[i] * blockSize[i] for i in range(3)]
@@ -75,81 +70,87 @@ def getMemBlockVolumeISL3D(
         return threadSet.intersect(validDomainSet)
 
     shiftY = 0
-    if grid[1] > 1 and (validDomain[4] - (grid[1] -waveDim[1]) * blockSize[1]) / blockSize[1] < 0.1:
-        print("shiftY: " + str((validDomain[4] - (grid[1] -waveDim[1]) * blockSize[1]) / blockSize[1]))
-        print(validDomain[1], grid[1],waveDim[1], blockSize[1])
+    if (
+        grid[1] > 1
+        and (validDomain[4] - (grid[1] - waveDim[1]) * blockSize[1]) / blockSize[1]
+        < 0.1
+    ):
+        print(
+            "shiftY: "
+            + str(
+                (validDomain[4] - (grid[1] - waveDim[1]) * blockSize[1]) / blockSize[1]
+            )
+        )
+        print(validDomain[1], grid[1], waveDim[1], blockSize[1])
         shiftY = 1
-
 
     currThreadSet = getThreadSet(
         (grid[0] - waveDim[0], grid[1] - waveDim[1] - shiftY, grid[2] // 2),
-        (grid[0],              grid[1] - shiftY,              grid[2] // 2 + waveDim[2]),
+        (grid[0], grid[1] - shiftY, grid[2] // 2 + waveDim[2]),
     )
     xplaneThreadSet = getThreadSet(
-        (grid[0] - 2*waveDim[0], grid[1] - waveDim[1] - shiftY, grid[2] // 2),
-        (grid[0] - waveDim[0],   grid[1] - shiftY,              grid[2] // 2 + waveDim[2]),
+        (grid[0] - 2 * waveDim[0], grid[1] - waveDim[1] - shiftY, grid[2] // 2),
+        (grid[0] - waveDim[0], grid[1] - shiftY, grid[2] // 2 + waveDim[2]),
     )
     yplaneThreadSet = getThreadSet(
-        (0,       max(0, grid[1] - 2 * waveDim[1] - shiftY), grid[2] // 2),
-        (grid[0], grid[1] - waveDim[1] - shiftY,             grid[2] // 2 + waveDim[2]),
+        (0, max(0, grid[1] - 2 * waveDim[1] - shiftY), grid[2] // 2),
+        (grid[0], grid[1] - waveDim[1] - shiftY, grid[2] // 2 + waveDim[2]),
     )
     zplaneThreadSet = getThreadSet(
         (0, 0, grid[2] // 2 - 1), (grid[0], grid[1], grid[2] // 2)
     )
 
     print("current thread set: \n" + str(currThreadSet))
-    #print("X,Y,Z plane thread sets:")
-    #print(xplaneThreadSet)
-    #print(yplaneThreadSet)
-    #print(zplaneThreadSet)
+    # print("X,Y,Z plane thread sets:")
+    # print(xplaneThreadSet)
+    # print(yplaneThreadSet)
+    # print(zplaneThreadSet)
     print()
 
-    cellCount = currThreadSet.count_val().to_python()
+    def countSet(threadSet):
+        return threadSet.count_val().to_python()
 
+    cellCount = countSet(currThreadSet)
 
-    VLoadNew = 0
-    currLoadAddressSets = []
-    for accessMap in loadAccessMaps:
-        loadAddressSet = currThreadSet.apply(accessMap)
-        currLoadAddressSets.append( loadAddressSet )
-        VLoadNew += loadAddressSet.count_val().to_python() * 32
+    def getVolumes(fields):
+        VNew = 0
+        VOldX = VOldY = VOldZ = 0
+        VOverlapX = VOverlapY = VOverlapZ = 0
 
-    VStoreNew = 0
-    currStoreAddressSets = []
-    for accessMap in storeAccessMaps:
-        storeAddressSet = currThreadSet.apply(accessMap)
-        currStoreAddressSets.append(storeAddressSet)
-        VStoreNew += storeAddressSet.count_val().to_python() * 32
+        for field in fields:
+            addSet = currThreadSet.apply(field.accessMap)
+            VNew += countSet(addSet) * 32 * field.multiplicity
 
+            xAddSet = xplaneThreadSet.apply(field.accessMap)
+            VOldX += countSet(xAddSet) * 32 * field.multiplicity
+            VOverlapX += countSet(addSet.intersect(xAddSet)) * 32 * field.multiplicity
+            addSet = addSet.subtract(xAddSet)
 
-    def getVolumes(currAddressSets, prevThreadSet, accessMaps):
-        Vold = 0
-        Voverlap = 0
+            yAddSet = yplaneThreadSet.apply(field.accessMap)
+            VOldY += countSet(yAddSet) * 32 * field.multiplicity
+            VOverlapY += countSet(addSet.intersect(yAddSet)) * 32 * field.multiplicity
+            addSet = addSet.subtract(yAddSet)
 
-        for field in range(len(currAddressSets)):
+            zAddSet = zplaneThreadSet.apply(field.accessMap)
+            VOldZ += countSet(zAddSet) * 32 * field.multiplicity
+            VOverlapZ += countSet(addSet.intersect(zAddSet)) * 32 * field.multiplicity
+        return VNew, VOldX, VOverlapX, VOldY, VOverlapY, VOldZ, VOverlapZ
 
-            prevAddresses = prevThreadSet.apply(accessMaps[field])
-            Vold += prevAddresses.count_val().to_python()
-            Voverlap += (
-                currAddressSets[field].intersect(prevAddresses).count_val().to_python()
-            )
-
-            currAddressSets[field] = currAddressSets[field].subtract(prevAddresses)
-
-        return Vold * 32, Voverlap * 32
-
-    VLoadOldX, VLoadOverlapX = getVolumes(currLoadAddressSets, xplaneThreadSet, loadAccessMaps)
-    VLoadOldY, VLoadOverlapY = getVolumes(currLoadAddressSets, yplaneThreadSet, loadAccessMaps)
-    VLoadOldZ, VLoadOverlapZ = getVolumes(currLoadAddressSets, zplaneThreadSet, loadAccessMaps)
-
-    VStoreOldX, VStoreOverlapX = getVolumes(currStoreAddressSets, xplaneThreadSet, storeAccessMaps)
-    VStoreOldY, VStoreOverlapY = getVolumes(currStoreAddressSets, yplaneThreadSet, storeAccessMaps)
-    VStoreOldZ, VStoreOverlapZ = getVolumes(currStoreAddressSets, zplaneThreadSet, storeAccessMaps)
-
-
+    (
+        VLoadNew,
+        VLoadOldX, VLoadOverlapX,
+        VLoadOldY, VLoadOverlapY,
+        VLoadOldZ, VLoadOverlapZ,
+    ) = getVolumes(loadFields)
+    (
+        VStoreNew,
+        VStoreOldX, VStoreOverlapX,
+        VStoreOldY, VStoreOverlapY,
+        VStoreOldZ, VStoreOverlapZ,
+    ) = getVolumes(storeFields)
 
     t2 = time.process_time()
-    #print(
+    # print(
     #    "{:4.1f},   {:4.1f}   {:4.1f}   {:4.1f},   {:5.1f} {:5.1f} {:5.1f},  {:6.1f} ms".format(
     #        VLoadNew / cellCount,
     #        VLoadOverlapX / cellCount,
@@ -160,7 +161,7 @@ def getMemBlockVolumeISL3D(
     #        (VLoadOldZ + VStoreOldZ) / 1024 / 1024,
     #        (t2 - t1) * 1000,
     #    )
-    #)
+    # )
 
     concurrentThreadCount = (
         blockSize[0]
@@ -188,19 +189,24 @@ def getMemBlockVolumeISL3D(
         waveBlockCount * (blockSize[0] * blockSize[1] * blockSize[2]) / cellCount
     )
 
-    #print(
+    # print(
     #    "Vnew : {:5.3f} -> {:5.3f},  {:5.3f} -> {:5.3f}".format(
     #        VLoadNew / 1024 / 1024, VLoadNew * VnewFactor / 1024 / 1024,
     #        VStoreNew / 1024 / 1024, VStoreNew * VnewFactor / 1024 / 1024
     #    )
-    #)
+    # )
 
     roverX = rover(0, VLoadOldX + VStoreOldX)
     roverY = rover(0, VLoadOldY + VStoreOldY)
     roverZ = rover(0, VLoadOldZ + VStoreOldZ)
 
-    #print( "Coverages : {:5.3f} {:5.3f} {:5.3f}".format(roverX,roverY,roverZ))
+    # print( "Coverages : {:5.3f} {:5.3f} {:5.3f}".format(roverX,roverY,roverZ))
 
-
-
-    return VLoadNew, VStoreNew, (VLoadOldY + VStoreOldY + VLoadOldX + VStoreOldX, VLoadOldZ + VStoreOldZ), (VLoadOverlapX + VLoadOverlapY, VLoadOverlapZ), (VStoreOverlapX + VStoreOverlapY, VStoreOverlapZ), cellCount
+    return (
+        VLoadNew,
+        VStoreNew,
+        (VLoadOldY + VStoreOldY + VLoadOldX + VStoreOldX, VLoadOldZ + VStoreOldZ),
+        (VLoadOverlapX + VLoadOverlapY, VLoadOverlapZ),
+        (VStoreOverlapX + VStoreOverlapY, VStoreOverlapZ),
+        cellCount,
+    )
