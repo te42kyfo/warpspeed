@@ -24,6 +24,9 @@ class Field:
                 self.datatype
             )
             linExpr = sp.sympify(exprString)
+            return linExpr
+
+        def lambdifyExpr(linExpr):
             return sp.lambdify(
                 sp.symbols(
                     "tidx, tidy, tidz, blockIdx, blockIdy, blockIdz, blockDimx, blockDimy, blockDimz"
@@ -39,7 +42,8 @@ class Field:
             for a in self.NDAddresses
         ]
 
-        self.linearAddresses = [linearizeExpr(a) for a in self.NDAddresses]
+        self.linearExpressions = [linearizeExpr(a) for a in self.NDAddresses]
+        self.linearAddresses = [lambdifyExpr(a) for a in self.linearExpressions]
 
 
 class WarpspeedKernel:
@@ -51,15 +55,3 @@ class WarpspeedKernel:
         self.storeFields = storeFields
 
         self.flops = flops
-
-    def getLoadExprs3D(self):
-        return self.loadExprs3D
-
-    def getStoreExprs3D(self):
-        return self.storeExprs3D
-
-    def genLoads(self):
-        return self.loadExprs
-
-    def genStores(self):
-        return self.storeExprs
