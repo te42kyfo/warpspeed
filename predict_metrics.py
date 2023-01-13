@@ -57,6 +57,27 @@ class DeviceAmpere:
 
         self.name = "A100"
 
+class DeviceAmpereA100_80GB:
+    def __init__(self):
+        self.clock = 1.410
+        self.smCount = 108
+        self.sizeL2 = 20 * 1024 * 1024
+        self.sizeL1 = 192 * 1024
+
+        self.L2FetchSize = 32
+
+        self.L2BW = 4500
+        self.memBW = 1500
+
+        self.L2totalBW = 5500
+        self.L2texBW = 4500
+        self.L2ltcBW = 4500 / 2
+
+        self.L2TagRate = 40 * self.clock
+
+        self.name = "A100"
+
+
 
 class Device2080Ti:  # unverified
     def __init__(self):
