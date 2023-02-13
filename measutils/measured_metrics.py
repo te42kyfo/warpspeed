@@ -1,50 +1,39 @@
 #!/usr/bin/env python3
-from meas_utils import measureMetrics, benchKernel
+import stencil_runner.stencil_runner as stencil_runner
 from column_print import *
-
+from pystencils.display_utils import get_code_str
 
 class MeasuredMetrics:
-    def measure(runFunc, lc):
+    def measure(kernel, lc):
+
+        codeText = get_code_str(kernel).replace("FUNC_PREFIX", "#define int64_t size_t \n extern \"C\" __global__ ").replace(
+            "RESTRICT", "__restrict__"
+        )
         self = MeasuredMetrics()
         (
             self.memLoad,
             self.memStore,
-            # self.L2Load,
-            # self.L2Store,
             self.L2Load_tex,
             self.L2Store,
-            # self.L2tex,
-            # self.L2ltc,
-            # self.L2total,
-            # self.L2tagRequests,
             self.L1Wavefronts,
-        ) = measureMetrics(runFunc, lc.domain)
+        ) = stencil_runner.measureMetrics2BufferKernel(
+            lc.API, codeText, "kernel", lc.block, lc.grid, lc.bufferSizeBytes
+        )
 
         self.L2ltc = 1
         self.L2total = 1
 
-        time = benchKernel(runFunc)
-        self.lups = lc.domain[0] * lc.domain[1] * lc.domain[2] / time / 1e6
+        time = stencil_runner.time2BufferKernel(
+            lc.API, codeText, "kernel", lc.block, lc.grid, lc.bufferSizeBytes
+        )
+        self.lups = lc.domain[0] * lc.domain[1] * lc.domain[2] / time / 1e9
+
         return self
 
     def fromDict(values):
         self = MeasuredMetrics()
         self.__dict__ = values
         return self
-
-    # def stringKey(self, key, labelWidth, valueWidth):
-    #    kB = False
-    #    if key in self.__dict__:
-    #        string = "{:{labelWidth}}: {:{valueWidth}.1f}{:2} ".format(
-    #            str(key),
-    #            self.__dict__[key] / (1024 if kB else 1),
-    #            "kB" if kB else "",
-    #            labelWidth=labelWidth,
-    #            valueWidth=valueWidth,
-    #        )
-    #    else:
-    #        string = "{:{width}}".format(" ", width=labelWidth + valueWidth)
-    #    return string
 
     def __str__(self):
         columns = [
@@ -54,8 +43,7 @@ class MeasuredMetrics:
                 ("memLoad", "B"),
                 ("memStore", "B"),
             ],
-            [("L1Wavefronts", ""),
-             ("lups", "Lup/s")],
+            [("L1Wavefronts", ""), ("lups", "Lup/s")],
         ]
 
         return columnPrint(self, columns)
@@ -63,16 +51,16 @@ class MeasuredMetrics:
 
 class ResultComparer:
     def __init__(self, meas, pred):
-        #for v in vars(meas):
+        # for v in vars(meas):
         #    setattr(self, v, getattr(meas, v))
 
-        #for v in vars(pred):
+        # for v in vars(pred):
         #    setattr(self, v, getattr(pred, v))
 
         self.m = meas
         self.p = pred
 
-    def __str__(self):
+    def columns(self):
         columns = [
             [
                 ("p.L1Cycles", ""),
@@ -106,15 +94,22 @@ class ResultComparer:
                 ("p.memStoreV2", "B"),
                 ("m.memStore", "B"),
             ],
-            [
-                ("p.perfL1", "GLup/s"),
-                ("p.perfL2V2", "GLup/s"),
-                ("p.perfMemV4", "GLup/s"),
-                ("p.perfV4", "GLup/s"),
-                ("p.perfPheno", "GLup/s"),
-                ("m.lups", "GLup/s"),
-                ("p.limPheno", ""),
-            ],
-        ]
 
-        return columnPrint(self, columns)
+
+            [
+                ("p.perfL1", "GFlop/s"),
+                ("p.perfL2V2", "GFlop/s"),
+                ("p.perfMemV4", "GFlop/s"),
+                ("p.perfV4", "GFlop/s"),
+                ("p.perfPheno", "GFlop/s"),
+                ("m.lups", "GFlop/s"),
+                ("p.limPheno", ""),
+            ]
+        ]
+        return columns
+
+    def __str__(self):
+        return columnPrint(self, self.columns())
+
+    def html(self):
+        return htmlColumnPrint(self, self.columns())
