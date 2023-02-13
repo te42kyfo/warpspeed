@@ -29,6 +29,15 @@ def generateColumns(obj, columns):
                     value /= 1024
                 if e[1] == "MB":
                     value /= 1024 * 1024
+                if e[1] == "GFlop/s":
+                    flops = getattr(obj, "flops", getattr(obj, "lc.flops", 0))
+                    if flops > 0:
+                        e = (e[0] * flops, e[1])
+                    else:
+                        e = (e[0], "GLup/s")
+
+
+                    
                 prec = 0 if isinstance(value, int) else 1 if value < 50 else 0
                 columnEntries[-2].append(
                     "{value:.{prec}f}".format(value=value, prec=prec)

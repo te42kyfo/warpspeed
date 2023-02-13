@@ -51,7 +51,7 @@ class PageVisitor:
     def count(self, addresses, multiplicity=1):
         self.pages += np.unique(addresses // (self.pageSize)).size * multiplicity
 
-class L1thruVisitor:
+class L1thruVisitorNV:
     def __init__(self):
         self.cycles = 0
 
@@ -65,6 +65,19 @@ class L1thruVisitor:
             maxCycles = max(maxCycles, banks[bank])
         self.cycles += max(maxCycles,  np.unique(laneAddresses // 1024).size)*multiplicity
 
+class L1thruVisitorCDNA:
+    def __init__(self):
+        self.cycles = 0
+
+    def count(self, laneAddresses, multiplicity=1):
+        addresses = list(set([l // 8 for l in laneAddresses]))
+        banks = [0] * 16
+        maxCycles = 0
+        for a in addresses:
+            bank = int(a) % 16
+            banks[bank] += 1
+            maxCycles = max(maxCycles, banks[bank])
+        self.cycles += max(4, maxCycles,  np.unique(laneAddresses // 1024).size)*multiplicity
 
 class DummyFieldAccess:
     def __init__(self, address, datatype, multiplicity):
@@ -99,11 +112,14 @@ def getWarp(warpSize, block):
     return warp
 
 
-def getL1Cycles(block, grid, loadStoreFields):
+def getL1Cycles(block, grid, loadStoreFields, L1Model):
 
     halfWarp = getWarp(16, block)
     outerSize = tuple(grid[i] * block[i] // halfWarp[i] for i in range(0, 3))
-    visitor = L1thruVisitor()
+    if L1Model=="CDNA":
+        visitor = L1thruVisitorCDNA()
+    else:
+        visitor = L1thruVisitorNV()
 
 
     separatedFields = [ DummyFieldAccess(a, field.datatype, field.multiplicity)

@@ -35,7 +35,8 @@ class DeviceVolta:
         self.L2TagRate = 40 * self.clock / 1000
 
         self.name = "V100"
-
+        self.API = "CUDA"
+        self.L1Model = "NV"
 
 class DeviceAmpere:
     def __init__(self):
@@ -56,6 +57,8 @@ class DeviceAmpere:
         self.L2TagRate = 40 * self.clock
 
         self.name = "A100"
+        self.API = "CUDA"
+        self.L1Model = "NV"
 
 class DeviceAmpereA100_80GB:
     def __init__(self):
@@ -76,7 +79,7 @@ class DeviceAmpereA100_80GB:
         self.L2TagRate = 40 * self.clock
 
         self.name = "A100"
-
+        self.API = "NV"
 
 
 class Device2080Ti:  # unverified
@@ -90,10 +93,45 @@ class Device2080Ti:  # unverified
         self.memBW = 590
 
         self.name = "2080Ti"
+        self.API = "CUDA"
+        self.L1Model = "NV"
+
+class DeviceMI100:
+    def __init__(self):
+        self.clock = 1.2
+        self.smCount = 110
+        self.sizeL2 = 6 * 1024 * 1024
+        self.sizeL1 = 16 * 1024
+
+        self.L2FetchSize = 32
+
+        self.L2BW = 2500
+        self.memBW = 1200
+
+        self.name = "MI100"
+        self.API = "HIP"
+
+        self.L1Model = "CDNA"
+
+class DeviceMI210:
+    def __init__(self):
+        self.clock = 1.7
+        self.smCount = 104
+        self.sizeL2 = 6 * 1024 * 1024
+        self.sizeL1 = 16 * 1024
+
+        self.L2FetchSize = 32
+
+        self.L2BW = 5000
+        self.memBW = 1400
+
+        self.name = "MI210"
+        self.API = "HIP"
+        self.L1Model = "CDNA"
 
 
 class LaunchConfig:
-    def compute(kernel, block, domain, blocking_factors, device):
+    def compute(kernel, block, domain, blocking_factors, device, bufferSizeBytes):
         self = LaunchConfig()
         self.block = block
         self.grid = tuple(
@@ -103,6 +141,7 @@ class LaunchConfig:
         self.domain = list(domain)
         self.blocking_factors = blocking_factors
         self.device = device.name
+        self.API = device.API
 
         self.blocksPerSM = predict.getBlocksPerSM(block, kernel.registers)
         if self.blocksPerSM == 0:
@@ -121,6 +160,7 @@ class LaunchConfig:
         self.threadsPerBlock = block[0] * block[1] * block[2]
         self.lupsPerThread = reduce(mul, blocking_factors)
         self.flops = kernel.flops
+        self.bufferSizeBytes = bufferSizeBytes
         return self
 
     def fromDict(values):
@@ -142,8 +182,8 @@ class BasicMetrics:
         self.L1Cycles = getL1Cycles(
             lc.block,
             lc.truncatedWaveSize,
-            kernel.loadFields + kernel.storeFields
-
+            kernel.loadFields + kernel.storeFields,
+            device.L1Model
         )
         #linearLoadAddresses = [ l.linearAddresses for l in kernel.loadFields  ]
         #linearStoreAddresses = [ l.linearAddresses for l in kernel.storeFields  ]
@@ -417,6 +457,11 @@ class DerivedMetrics:
             [self.perfL1, self.perfL2V2, self.perfMemV4]
         )
 
+        # naive roofline style performance estimate with RFO balances
+        self.perf2LimV4, self.lim2LimV4 = selectLimiter(
+            [self.perfMemV4]
+        )
+
         if not meas is None:
             self.perfMemPheno = self.device.memBW / max(
                 0.1, meas.memLoad + meas.memStore
@@ -432,10 +477,13 @@ class DerivedMetrics:
                 [self.perfL1Pheno, self.perfL2Pheno, self.perfMemPheno]
             )
 
-        if getattr(lc, "flops", 0) > 0:
-            for a in dir(self):
-                if a.startswith("perf"):
-                    self.__dict__[a] = getattr(self, a) * lc.flops
+            self.perf2LimPheno, self.lim2LimPheno = selectLimiter(
+                [self.perfMemPheno]
+            )
+        #if getattr(lc, "flops", 0) > 0:
+        #    for a in dir(self):
+        #        if a.startswith("perf"):
+        #            self.__dict__[a] = getattr(self, a) * lc.flops
 
     def stringKey(self, key, labelWidth, valueWidth):
         kB = key == "smL1Alloc" or key == "waveL2Alloc"
@@ -476,27 +524,15 @@ class DerivedMetrics:
                 ("memStoreV1", "B/Lup"),
                 ("memStoreV2", "B/Lup"),
             ],
+
+            [
+                ("L1Cycles", "cyc"),
+                ("perfMemV3", "GFlop/s"),
+                ("perfL2V2", "GFlop/s"),
+                ("perfL1", "GFlop/s"),
+                ("perfV3", "GFlop/s"),
+            ]
         ]
-        if getattr(self.lc, "flops", 0) == 0:
-            columns.append(
-                [
-                    ("L1Cycles", "cyc"),
-                    ("perfMemV3", "GLups/s"),
-                    ("perfL2V2", "GLups/s"),
-                    ("perfL1", "GLups/s"),
-                    ("perfV3", "GLups/s"),
-                ]
-            )
-        else:
-            columns.append(
-                [
-                    ("L1Cycles", "cyc"),
-                    ("perfMemV3", "GFlop/s"),
-                    ("perfL2V2", "GFlop/s"),
-                    ("perfL1", "GFlop/s"),
-                    ("perfV3", "GFlop/s"),
-                ]
-            )
         return columns
 
     def __str__(self):
