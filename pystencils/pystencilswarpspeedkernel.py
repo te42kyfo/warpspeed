@@ -195,5 +195,5 @@ class PyStencilsWarpSpeedKernel:
         operation_count = count_operations_in_ast(ast)
 
         self.flops = operation_count["adds"] + operation_count["muls"]
-        self.registers = registers
+        self.registers = 32
         self.ast = ast
