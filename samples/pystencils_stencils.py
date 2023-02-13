@@ -3,8 +3,9 @@
 import sys
 
 sys.path.append("../../pystencils")
-sys.path.append("..")
 sys.path.append("../pystencils")
+sys.path.append("../warpspeed")
+
 
 
 from pystencilswarpspeedkernel import PyStencilsWarpSpeedKernel

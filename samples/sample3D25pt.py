@@ -2,7 +2,7 @@
 
 import sys
 
-sys.path.append("..")
+sys.path.append("../warpspeed/")
 
 from predict_metrics import *
 from warpspeedkernel import *
