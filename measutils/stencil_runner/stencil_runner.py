@@ -20,6 +20,15 @@ def loadDLLs(API):
 
         my_functions = CDLL(filename, mode=RTLD_GLOBAL)
         my_functions.timeKernel.restype = c_double
+        my_functions.pyMeasureMetrics.restype = py_object
+        my_functions.pyMeasureMetrics.argtypes = [
+            py_object,
+            py_object,
+            py_object,
+            py_object,
+            py_object,
+            py_object,
+        ]
 
 
 def time2BufferKernel(API, codeString, funcName, blockSize, gridSize, bufferSizeBytes):
@@ -34,17 +43,16 @@ def time2BufferKernel(API, codeString, funcName, blockSize, gridSize, bufferSize
         )
     ).value
 
-def measureMetrics2BufferKernel(API, codeString, funcName, blockSize, gridSize, bufferSizeBytes):
+
+def measureMetrics2BufferKernel(
+    API, metricNames, codeString, funcName, blockSize, gridSize, bufferSizeBytes
+):
     loadDLLs(API)
-    return c_double(
-        my_functions.timeKernel(
-            create_string_buffer(codeString.encode("utf-8")),
-            create_string_buffer(funcName.encode("utf-8")),
-            *blockSize,
-            *gridSize,
-            c_size_t(bufferSizeBytes)
-        )
-    ).value, 1, 1, 1, 1
+    res = my_functions.pyMeasureMetrics(
+        metricNames, codeString, funcName, blockSize, gridSize, bufferSizeBytes
+    )
+    print("measureMetrics2BufferKernel: " + str(res))
+    return res;
 
 if __name__ == "__main__":
     for N in range(1, 190):
@@ -55,12 +63,14 @@ if __name__ == "__main__":
 
         for i in range(0, N):
             for n in range(0, N):
-                codeString += "prod += " + "A[(size_t) tidx*{0}+{1}] * B[(size_t) tidx*{0} + {2}];\n".format(
-                    N, i, n
+                codeString += (
+                    "prod += "
+                    + "A[(size_t) tidx*{0}+{1}] * B[(size_t) tidx*{0} + {2}];\n".format(
+                        N, i, n
+                    )
                 )
 
         codeString += "if (prod == 12.3213) A[0] = prod;}"
-
 
         codeString = """
         #define int64_t int
@@ -115,9 +125,13 @@ if __name__ == "__main__":
       _data_dst_10_21[ctr_0] = fa_13*0.25 + fa_14*0.25 + fa_15*0.25 + fa_16*0.25 + fa_17*0.25 + fa_18*0.25 + fa_19*0.25 + fa_20*0.25 + fa_21*0.25 + xi_0;
    } 
 }"""
-        
 
         dt = time2BufferKernel(
-            "CUDA", codeString, "func", (256, 1, 1), (100000, 1, 1), 100000 * 256 * N * 8
+            "CUDA",
+            codeString,
+            "func",
+            (256, 1, 1),
+            (100000, 1, 1),
+            100000 * 256 * N * 8,
         )
         print(2 * 256 * 100000 * N * N / dt / 1.0e9)
