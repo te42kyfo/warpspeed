@@ -159,12 +159,6 @@ vector<double> measureMetrics(vector<string> metricNames,
                               size_t bufferSize) {
   init(bufferSize);
 
-  static bool measureMetric_initialized = false;
-
-  if(!measureMetric_initialized) {
-    initMeasureMetric();
-    measureMetric_initialized = true;
-  }
 
   auto kernel = buildKernel(kernelText, funcName);
   void *args[] = {&src, &dst};
@@ -220,8 +214,10 @@ extern "C" PyObject *pyMeasureMetrics(PyObject *metricNames,
 #endif
 int main(int argc, char **) {
 
- initMeasureMetric();
 
+  setenv("HSA_TOOLS_LIB", "/opt/rocm/rocprofiler/lib/librocprofiler64.so", 1);
+  setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 1);
+  setenv("ROCP_HSA_INTERCEPT", "1", 1);
 
 
   for (int i = 1; i < 1024 * 1024 * 1024; i *= 2) {
@@ -229,10 +225,10 @@ int main(int argc, char **) {
     codeString += "int elementCount = " + to_string(i) + ";\n";
     codeString +=  "for(size_t i = tidx; i < elementCount; i += blockDim.x * gridDim.x) {A[i] = 0.2 * A[i];}}";
 
-    double dt = timeKernel(codeString.c_str(), "updateKernel", 1024, 1, 1, i, 1, 1, i*sizeof(double));
+    double dt = timeKernel(codeString.c_str(), "updateKernel", 1024, 1, 1, 10, 1, 1, i*sizeof(double));
 
     auto vals = measureMetrics({"FETCH_SIZE", "WRITE_SIZE"},
-        codeString.c_str(), "updateKernel", 1024, 1, 1, i, 1, 1, i*sizeof(double));
+        codeString.c_str(), "updateKernel", 1024, 1, 1, i, 10, 1, i*sizeof(double));
 
     std::cout << std::setw(10) << i << " " << std::setprecision(0) << std::fixed
               << std::setw(7) << dt * 1000000 << " " << std::setw(7)

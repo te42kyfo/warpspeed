@@ -7,6 +7,7 @@ LDFLAGS  :=  -lnvrtc -L$(CUDA_HOME)/lib64 -lcuda -lcudart
 CUDAFLAGS  :=  -O3 -I$(CUDA_HOME)/include -std=c++2a $(shell python3-config --includes)
 HIPFLAGS := -O3 -std=c++2a -I/opt/rocm/include/hip $(shell python3-config --includes) -I$(HIP_HOME)/include/rocprofiler/ -I$(HIP_HOME)/hsa/include/hsa -L$(HIP_HOME)/rocprofiler/lib -lrocprofiler64 -lhsa-runtime64
 
+DEPS := ../gpu_metrics/rocm_metrics/rocm_metrics.hpp
 
 cuda_stencil_runner.so: cuda_stencil_runner.cpp
 	g++ $< -fPIC -shared -o $@ $(LDFLAGS) $(CUDAFLAGS)
@@ -20,7 +21,7 @@ hip_stencil_runner.so: hip_stencil_runner.cpp
 cuda_stencil_runner_test: cuda_stencil_runner.cpp
 	g++ $< -o $@ $(LDFLAGS) $(CUDAFLAGS)
 
-hip_stencil_runner_test: hip_stencil_runner.cpp
+hip_stencil_runner_test: hip_stencil_runner.cpp $(DEPS)
 	hipcc $< -o $@ $(HIPFLAGS) -ldl -DNO_PYTHON
 
 clean:
