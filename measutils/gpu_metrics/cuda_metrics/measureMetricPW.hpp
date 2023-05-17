@@ -4,6 +4,7 @@
 #include "Eval.hpp"
 #include "Metric.hpp"
 #include <cuda.h>
+#include <cuda_runtime_api.h>
 #include <cupti_profiler_target.h>
 #include <cupti_target.h>
 #include <functional>
@@ -190,12 +191,16 @@ bool runTestEnd() {
   return true;
 }
 
-bool static initialized = false;
+bool static measureMetrics_initialized = false;
 
-double measureMetricStart(std::vector<std::string> newMetricNames) {
+double measureMetricsStart(std::vector<const char*> newMetricNames) {
 
-  if (!initialized) {
-    initialized = true;
+  std::vector<std::string> metricNameVector;
+  for( const auto metricName : newMetricNames )
+    metricNameVector.push_back(std::string(metricName));
+
+  if (!measureMetrics_initialized) {
+    measureMetrics_initialized = true;
     cudaFree(0);
   }
   int deviceNum = 0;
@@ -212,7 +217,7 @@ double measureMetricStart(std::vector<std::string> newMetricNames) {
     return -2.0;
   }
 
-  metricNames = newMetricNames;
+  metricNames = metricNameVector;
   counterDataImagePrefix = std::vector<uint8_t>();
   configImage = std::vector<uint8_t>();
   counterDataScratchBuffer = std::vector<uint8_t>();
@@ -276,13 +281,13 @@ double measureMetricStart(std::vector<std::string> newMetricNames) {
 
 // double measureMetric(std::function<double()> runPass,
 //                      std::vector<std::string> metricNames) {
-//   measureMetricStart(metricNames);
+//   measureMetricsStart(metricNames);
 //   runPass();
 //   return measureMetricStop();
 //}
 
 extern "C" void measureBandwidthStart() {
-  measureMetricStart({"dram__bytes_read.sum", "dram__bytes_write.sum",
+  measureMetricsStart({"dram__bytes_read.sum", "dram__bytes_write.sum",
                       "lts__t_sectors_op_read.sum",
                       "lts__t_sectors_op_write.sum"});
 }
