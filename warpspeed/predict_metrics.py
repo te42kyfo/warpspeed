@@ -18,120 +18,105 @@ def selectDevice(name):
 
 
 class DeviceVolta:
-    def __init__(self):
-        self.clock = 1.38
-        self.smCount = 80
-        self.sizeL2 = 6 * 1024 * 1024
-        self.sizeL1 = 128 * 1024
+    CLAllocationSize = 128
+    L2FetchSize = 32
 
-        self.L2FetchSize = 32
+    fp64CycleSM = 32
+    fp32CycleSM = 64
 
-        self.L2BW = 2500
-        self.memBW = 790
-
-        self.L2totalBW = 5500
-        self.L2texBW = 4500
-        self.L2ltcBW = 4500 / 2
-        self.L2TagRate = 40 * self.clock / 1000
-
-        self.name = "V100"
-        self.API = "CUDA"
-        self.L1Model = "NV"
-
-class DeviceAmpere:
-    def __init__(self):
-        self.clock = 1.410
-        self.smCount = 108
-        self.sizeL2 = 20 * 1024 * 1024
-        self.sizeL1 = 192 * 1024
-
-        self.L2FetchSize = 32
-
-        self.L2BW = 4500
-        self.memBW = 1400
-
-        self.L2totalBW = 5500
-        self.L2texBW = 4500
-        self.L2ltcBW = 4500 / 2
-
-        self.L2TagRate = 40 * self.clock
-
-        self.name = "A100"
-        self.API = "CUDA"
-        self.L1Model = "NV"
-
-class DeviceAmpereA100_80GB:
-    def __init__(self):
-        self.clock = 1.410
-        self.smCount = 108
-        self.sizeL2 = 20 * 1024 * 1024
-        self.sizeL1 = 192 * 1024
-
-        self.L2FetchSize = 32
-
-        self.L2BW = 4500
-        self.memBW = 1500
-
-        self.L2totalBW = 5500
-        self.L2texBW = 4500
-        self.L2ltcBW = 4500 / 2
-
-        self.L2TagRate = 40 * self.clock
-
-        self.name = "A100"
-        self.API = "NV"
+    API = "CUDA"
+    L1Model = "NV"
 
 
-class Device2080Ti:  # unverified
-    def __init__(self):
-        self.clock = 2100
-        self.smCount = 68
-        self.sizeL2 = 5.5 * 1024 * 1024
-        self.sizeL1 = 64 * 1024
+class DeviceCDNA:
+    CLAllocationSize = 64
+    L2FetchSize = 64
 
-        self.L2BW = 2000
-        self.memBW = 590
+    fp64CycleSM = 32
+    fp32CycleSM = 64
 
-        self.name = "2080Ti"
-        self.API = "CUDA"
-        self.L1Model = "NV"
+    sizeL1 = 16 * 1024
 
-class DeviceMI100:
-    def __init__(self):
-        self.clock = 1.2
-        self.smCount = 110
-        self.sizeL2 = 6 * 1024 * 1024
-        self.sizeL1 = 16 * 1024
+    API = "HIP"
+    L1Model = "CDNA"
 
-        self.L2FetchSize = 32
 
-        self.L2BW = 2500
-        self.memBW = 1200
+class DeviceV100(DeviceVolta):
+    clock = 1.38
+    smCount = 80
+    sizeL2 = 6 * 1024 * 1024
+    sizeL1 = 128 * 1024
 
-        self.name = "MI100"
-        self.API = "HIP"
+    L2BW = 2500
+    memBW = 790
 
-        self.L1Model = "CDNA"
+    name = "V100"
 
-class DeviceMI210:
-    def __init__(self):
-        self.clock = 1.7
-        self.smCount = 104
-        self.sizeL2 = 6 * 1024 * 1024
-        self.sizeL1 = 16 * 1024
 
-        self.L2FetchSize = 32
+class DeviceAmpere(DeviceVolta):
+    clock = 1.410
+    smCount = 108
+    sizeL2 = 20 * 1024 * 1024
+    sizeL1 = 192 * 1024
 
-        self.L2BW = 5000
-        self.memBW = 1400
+    L2BW = 4500
+    memBW = 1400
 
-        self.name = "MI210"
-        self.API = "HIP"
-        self.L1Model = "CDNA"
+    name = "A100"
+
+
+class DeviceAmpereA100_80GB(DeviceAmpere):
+    memBW = 1600
+    L2BW = 5200
+    name = "A100_80GB"
+
+
+class Device2080Ti(DeviceVolta):  # unverified
+    clock = 2100
+    smCount = 68
+    sizeL2 = 5.5 * 1024 * 1024
+    sizeL1 = 64 * 1024
+
+    L2BW = 2000
+    memBW = 590
+
+    name = "2080Ti"
+
+
+class DeviceMI100(DeviceCDNA):
+    clock = 1.2
+    smCount = 110
+    sizeL2 = 6 * 1024 * 1024
+
+    L2BW = 2500
+    memBW = 1200
+
+    name = "MI100"
+
+
+class DeviceMI210(DeviceCDNA):
+    clock = 1.7
+    smCount = 104
+    sizeL2 = 6 * 1024 * 1024
+
+    fp64CycleSM = 64
+
+    L2BW = 5000
+    memBW = 1400
+
+    name = "MI210"
 
 
 class LaunchConfig:
-    def compute(kernel, block, domain, blocking_factors, device, bufferSizeBytes):
+    def compute(
+        kernel,
+        block,
+        domain,
+        blocking_factors,
+        device,
+        bufferSizeBytes,
+        alignmentBytes=0,
+    ):
         self = LaunchConfig()
         self.block = block
         self.grid = tuple(
@@ -161,6 +146,8 @@ class LaunchConfig:
         self.lupsPerThread = reduce(mul, blocking_factors)
         self.flops = kernel.flops
         self.bufferSizeBytes = bufferSizeBytes
+        self.alignmentBytes = alignmentBytes
+        self.lupCount = domain[0] * domain[1] * domain[2]
         return self
 
     def fromDict(values):
@@ -183,30 +170,52 @@ class BasicMetrics:
             lc.block,
             lc.truncatedWaveSize,
             kernel.loadFields + kernel.storeFields,
-            device.L1Model
+            device.L1Model,
         )
-        #linearLoadAddresses = [ l.linearAddresses for l in kernel.loadFields  ]
-        #linearStoreAddresses = [ l.linearAddresses for l in kernel.storeFields  ]
+        # linearLoadAddresses = [ l.linearAddresses for l in kernel.loadFields  ]
+        # linearStoreAddresses = [ l.linearAddresses for l in kernel.storeFields  ]
 
         self.blockL1LoadAlloc = max(
             1,
             getL1AllocatedLoadBlockVolume(
-                lc.block, lc.truncatedWaveSize, kernel.loadFields
-            )
+                lc.block,
+                lc.truncatedWaveSize,
+                kernel.loadFields,
+                device.CLAllocationSize,
+            ),
         )
         self.blockL1Load = max(
-            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, kernel.loadFields)
+            1,
+            getL2StoreBlockVolume(
+                lc.block, lc.truncatedWaveSize, kernel.loadFields, device.L2FetchSize
+            ),
         )
-        self.warpL1Load = max(1, getL1WarpLoadVolume(lc.block, kernel.loadFields))
+        self.warpL1Load = max(
+            1, getL1WarpLoadVolume(lc.block, kernel.loadFields, device.L2FetchSize)
+        )
         self.blockL2Load = max(
             1,
             getL2LoadBlockVolume(
                 lc.block, lc.truncatedWaveSize, kernel.loadFields, device.L2FetchSize
             ),
         )
+
+        self.blockL1TLBPages = max(
+            1,
+            getL1TLBPages(
+                lc.block,
+                lc.truncatedWaveSize,
+                kernel.loadFields + kernel.storeFields,
+                512 * 1024,
+            ),
+        )
+
         self.blockL2Store = max(
-            1, getL2StoreBlockVolume(lc.block, lc.truncatedWaveSize, kernel.storeFields)
-            )
+            1,
+            getL2StoreBlockVolume(
+                lc.block, lc.truncatedWaveSize, kernel.storeFields, device.L2FetchSize
+            ),
+        )
         # self.waveMemLoadISL, self.waveMemLoadOld, self.waveMemOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genLoadExprs(), [0,0,0] + lc.domain)
         # self.waveMemStoreISL, self.waveMemStoreOld, self.waveMemStoreOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genStoreExprs(), [0,0,0] + lc.domain)
 
@@ -265,8 +274,6 @@ class BasicMetrics:
         return columnPrint(self, columns)
 
     def html(self):
-
-
         highCount = lambda v: "{:.0f}".format(v)
         smallCount = lambda v: "{:.1f}".format(v)
         kiloByte = lambda v: "{:.1f} kB".format(v / 1024)
@@ -312,6 +319,8 @@ class DerivedMetrics:
 
         # Pass through of the estimated cycles quantity
         self.TLBpages = self.basic.TLBpages
+
+        self.L1TLBPages = self.basic.blockL1TLBPages * self.lc.blocksPerSM
 
         # Remap block quantity to thread balance
         self.L1Load = self.basic.blockL1Load / self.lc.threadsPerBlock / lupsPerThread
@@ -404,6 +413,13 @@ class DerivedMetrics:
         # compute memory load balance including capacity evicts
         self.memLoadV4 = self.memLoadV3 + self.memLoadEvicts
 
+        self.perfFlops = (
+            self.device.clock
+            * self.device.smCount
+            * self.device.fp32CycleSM
+            / self.lc.flops
+        )
+
         self.perfL1 = (
             self.device.smCount * self.device.clock * 32 / self.L1Cycles
             if self.L1Cycles != 0
@@ -439,28 +455,44 @@ class DerivedMetrics:
 
         # roofline style performance estimate
         self.perfV1, self.limV1 = selectLimiter(
-            [self.perfL1, self.perfL2V1, self.perfMemV1]
+            [self.perfFlops, self.perfL1, self.perfL2V1, self.perfMemV1]
         )
 
         # roofline style performance estimate with warm L2
         self.perfV2, self.limV2 = selectLimiter(
-            [self.perfL1, self.perfL2V1, self.perfMemV2]
+            [self.perfFlops, self.perfL1, self.perfL2V1, self.perfMemV2]
         )
 
         # roofline style performance estimate with capacity evicts
         self.perfV3, self.limV3 = selectLimiter(
-            [self.perfL1, self.perfL2V2, self.perfMemV3]
+            [self.perfFlops, self.perfL1, self.perfL2V2, self.perfMemV3]
         )
 
         # roofline style performance estimate with RFO balances
         self.perfV4, self.limV4 = selectLimiter(
-            [self.perfL1, self.perfL2V2, self.perfMemV4]
+            [self.perfFlops, self.perfL1, self.perfL2V2, self.perfMemV4]
         )
 
         # naive roofline style performance estimate with RFO balances
-        self.perf2LimV4, self.lim2LimV4 = selectLimiter(
-            [self.perfMemV4]
+        self.perf2LimV4, self.lim2LimV4 = selectLimiter([self.perfMemV4])
+
+        waveLups = (
+            self.device.smCount
+            * self.lc.blocksPerSM
+            * self.lc.threadsPerBlock
+            * self.lc.lupsPerThread
         )
+        threadCycles = (
+            +300
+            + self.L1Cycles * 16
+            + self.lc.flops * 4
+            + device.clock
+            * (
+                (self.memLoadV3 + self.memStoreV2) * waveLups / device.memBW
+                + (self.L2LoadV2 + self.L2Store) * waveLups / device.L2BW
+            )
+        )
+        self.perfEPMV3 = waveLups * self.device.clock / threadCycles
 
         if not meas is None:
             self.perfMemPheno = self.device.memBW / max(
@@ -474,13 +506,29 @@ class DerivedMetrics:
                 self.device.smCount * self.device.clock / meas.L1Wavefronts
             )
             self.perfPheno, self.limPheno = selectLimiter(
-                [self.perfL1Pheno, self.perfL2Pheno, self.perfMemPheno]
+                [self.perfFlops, self.perfL1Pheno, self.perfL2Pheno, self.perfMemPheno]
             )
 
-            self.perf2LimPheno, self.lim2LimPheno = selectLimiter(
-                [self.perfMemPheno]
+            self.perf2LimPheno, self.lim2LimPheno = selectLimiter([self.perfMemPheno])
+
+            waveLups = (
+                self.device.smCount
+                * self.lc.blocksPerSM
+                * self.lc.threadsPerBlock
+                * self.lc.lupsPerThread
             )
-        #if getattr(lc, "flops", 0) > 0:
+            threadCycles = (
+                +400
+                + meas.L1Wavefronts * self.lc.threadsPerBlock * self.lc.blocksPerSM
+                + self.lc.flops * 8
+                + device.clock
+                * (
+                    (meas.memLoad + meas.memStore) * waveLups / device.memBW
+                    + (meas.L2Load + meas.L2Store) * waveLups / device.L2BW
+                )
+            )
+            self.perfEPMPheno = waveLups * self.device.clock / threadCycles
+        # if getattr(lc, "flops", 0) > 0:
         #    for a in dir(self):
         #        if a.startswith("perf"):
         #            self.__dict__[a] = getattr(self, a) * lc.flops
@@ -499,7 +547,6 @@ class DerivedMetrics:
         else:
             string = "{:{width}}".format(" ", width=labelWidth + valueWidth + 5)
         return string
-
 
     def columns(self):
         columns = [
@@ -524,14 +571,14 @@ class DerivedMetrics:
                 ("memStoreV1", "B/Lup"),
                 ("memStoreV2", "B/Lup"),
             ],
-
             [
                 ("L1Cycles", "cyc"),
+                ("perfFlops", "GFlop/s"),
                 ("perfMemV3", "GFlop/s"),
                 ("perfL2V2", "GFlop/s"),
                 ("perfL1", "GFlop/s"),
                 ("perfV3", "GFlop/s"),
-            ]
+            ],
         ]
         return columns
 

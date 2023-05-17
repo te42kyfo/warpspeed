@@ -51,9 +51,11 @@ class PageVisitor:
     def count(self, addresses, multiplicity=1):
         self.pages += np.unique(addresses // (self.pageSize)).size * multiplicity
 
+
 class L1thruVisitorNV:
+    # start with 8 cycles to load 4 function parameters
     def __init__(self):
-        self.cycles = 0
+        self.cycles = 8
 
     def count(self, laneAddresses, multiplicity=1):
         addresses = list(set([l // 8 for l in laneAddresses]))
@@ -63,7 +65,10 @@ class L1thruVisitorNV:
             bank = int(a) % 16
             banks[bank] += 1
             maxCycles = max(maxCycles, banks[bank])
-        self.cycles += max(maxCycles,  np.unique(laneAddresses // 1024).size)*multiplicity
+        self.cycles += (
+            max(maxCycles, np.unique(laneAddresses // 1024).size) * multiplicity
+        )
+
 
 class L1thruVisitorCDNA:
     def __init__(self):
@@ -77,7 +82,10 @@ class L1thruVisitorCDNA:
             bank = int(a) % 16
             banks[bank] += 1
             maxCycles = max(maxCycles, banks[bank])
-        self.cycles += max(4, maxCycles,  np.unique(laneAddresses // 1024).size)*multiplicity
+        self.cycles += (
+            max(4 * maxCycles, np.unique(laneAddresses // 1024).size)
+        ) * multiplicity
+
 
 class DummyFieldAccess:
     def __init__(self, address, datatype, multiplicity):
@@ -87,7 +95,6 @@ class DummyFieldAccess:
 
 
 def gridIteration(fields, innerSize, outerSize, visitor):
-
     idx = np.arange(0, innerSize[0], dtype=np.int32)
     idy = np.arange(0, innerSize[1], dtype=np.int32)
     idz = np.arange(0, innerSize[2], dtype=np.int32)
@@ -98,7 +105,12 @@ def gridIteration(fields, innerSize, outerSize, visitor):
             addresses = np.empty(0)
             for addressLambda in field.linearAddresses:
                 addresses = np.concatenate(
-                    (addresses, np.asarray(addressLambda(x, y, z, *outerId, *innerSize)).ravel())
+                    (
+                        addresses,
+                        np.asarray(
+                            addressLambda(x, y, z, *outerId, *innerSize)
+                        ).ravel(),
+                    )
                 )
             visitor.count(addresses, field.multiplicity)
 
@@ -113,34 +125,48 @@ def getWarp(warpSize, block):
 
 
 def getL1Cycles(block, grid, loadStoreFields, L1Model):
-
     halfWarp = getWarp(16, block)
     outerSize = tuple(grid[i] * block[i] // halfWarp[i] for i in range(0, 3))
-    if L1Model=="CDNA":
+    if L1Model == "CDNA":
         visitor = L1thruVisitorCDNA()
     else:
         visitor = L1thruVisitorNV()
 
-
-    separatedFields = [ DummyFieldAccess(a, field.datatype, field.multiplicity)
-                         for field in loadStoreFields for a in field.linearAddresses]
+    separatedFields = [
+        DummyFieldAccess(a, field.datatype, field.multiplicity)
+        for field in loadStoreFields
+        for a in field.linearAddresses
+    ]
 
     gridIteration(separatedFields, halfWarp, outerSize, visitor)
 
     return visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2] * 2
 
-def getL1AllocatedLoadBlockVolume(block, grid, loadAddresses):
+
+def getL1AllocatedLoadBlockVolume(block, grid, loadAddresses, CLAllocationSize):
     visitor = CL128Visitor()
     gridIteration(loadAddresses, block, grid, visitor)
-    return visitor.CLs * 128 / grid[0] / grid[1] / grid[2]
+    return visitor.CLs * CLAllocationSize / grid[0] / grid[1] / grid[2]
 
-def getL1WarpLoadVolume(block, loadAddresses):
+
+def getL1WarpLoadVolume(block, loadAddresses, fetchSize):
     warp = getWarp(32, block)
-    grid = tuple(block[i] // warp[i] for i in range(0,3))
+    grid = tuple(block[i] // warp[i] for i in range(0, 3))
     visitor = CL32Visitor()
     gridIteration(loadAddresses, warp, grid, visitor)
-    return visitor.CLs * 32
+    return visitor.CLs * fetchSize
 
+
+def getL1TLBPages(block, grid, addresses, pageSize):
+    visitor = PageVisitor(pageSize)
+
+    gridIteration(addresses, block, grid, visitor)
+
+    print(str(visitor.pages) + " pages")
+    print(visitor.pages / grid[0] / grid[1] / grid[2])
+    print(block)
+
+    return visitor.pages / grid[0] / grid[1] / grid[2]
 
 
 def getL2LoadBlockVolume(block, grid, loadAddresses, fetchSize):
@@ -149,23 +175,27 @@ def getL2LoadBlockVolume(block, grid, loadAddresses, fetchSize):
     elif fetchSize == 64:
         visitor = CL64Visitor()
 
-
     gridIteration(loadAddresses, block, grid, visitor)
     return visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
 
-def getL2StoreBlockVolume(block, grid, storeFields):
+
+def getL2StoreBlockVolume(block, grid, storeFields, fetchSize):
     warp = getWarp(32, block)
 
     outerSize = tuple(grid[i] * block[i] // warp[i] for i in range(0, 3))
 
-    separatedFields = [ DummyFieldAccess(a, field.datatype, field.multiplicity)
-                         for field in storeFields for a in field.linearAddresses]
+    separatedFields = [
+        DummyFieldAccess(a, field.datatype, field.multiplicity)
+        for field in storeFields
+        for a in field.linearAddresses
+    ]
 
-    visitor = CL32Visitor()
+    if fetchSize == 32:
+        visitor = CL32Visitor()
+    elif fetchSize == 64:
+        visitor = CL64Visitor()
     gridIteration(separatedFields, warp, outerSize, visitor)
-    return visitor.CLs * 32 / grid[0] / grid[1] / grid[2]
-
-
+    return visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
 
 
 def getMemLoadWaveVolume(block, grid, loadAddresses):
