@@ -2,7 +2,6 @@
 
 
 def generateColumns(obj, columns):
-
     tableColumns = len(columns)
     tableRows = max([len(c) for c in columns])
     columnEntries = []
@@ -16,7 +15,6 @@ def generateColumns(obj, columns):
         columnEntries[-2].extend([""] * (tableRows - len(c)))
         columnEntries[-1].extend([""] * (tableRows - len(c)))
         for e in c:
-
             columnEntries[-3].append(e[0].split(".")[-1] + ":")
             value = eval("obj." + e[0])
 
@@ -30,14 +28,12 @@ def generateColumns(obj, columns):
                 if e[1] == "MB":
                     value /= 1024 * 1024
                 if e[1] == "GFlop/s":
-                    flops = getattr(obj, "flops", getattr(obj, "lc.flops", 0))
+                    flops = getattr(getattr(obj, "lc", obj), "flops", 0)
+                    print(flops)
                     if flops > 0:
-                        e = (e[0] * flops, e[1])
+                        value *= flops
                     else:
                         e = (e[0], "GLup/s")
-
-
-                    
                 prec = 0 if isinstance(value, int) else 1 if value < 50 else 0
                 columnEntries[-2].append(
                     "{value:.{prec}f}".format(value=value, prec=prec)
@@ -50,7 +46,6 @@ def generateColumns(obj, columns):
 
 
 def columnFormat(columnEntries, alignments, columnSeperator=" "):
-
     rows = len(columnEntries[0])
 
     columnWidths = []
@@ -72,17 +67,18 @@ def columnFormat(columnEntries, alignments, columnSeperator=" "):
 
 
 def htlmColumnFormat(columnEntries, alignments, columnSeperator=" "):
-
     rows = len(columnEntries[0])
 
-    string = "<table style=\"font-size:14px\">\n"
+    string = '<table style="font-size:14px">\n'
     for row in range(len(columnEntries[0])):
         string += " <tr>\n"
         columnCounter = 0
         for c, alignment in zip(columnEntries, alignments):
             padding = 0.9 if columnCounter == 2 else 0.0
             string += (
-                '  <td style="padding:0.4em;padding-right:' + str(padding) + 'em;text-align:'
+                '  <td style="padding:0.4em;padding-right:'
+                + str(padding)
+                + "em;text-align:"
                 + ("left" if alignment == "<" else "right")
                 + '">'
                 + ("<b>" if columnCounter == 0 else "")
