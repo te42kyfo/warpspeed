@@ -2,9 +2,11 @@
 #define GPU_MEASURE_METRICS_H_
 
 
-#ifdef __NVCC__
-#include "cuda_metrics/measureMetricPW.hpp"
-#elif defined __HIP__
+
+#ifdef __HIP__
 #include "rocm_metrics/rocm_metrics.hpp"
+#else
+#include "cuda_metrics/measureMetricPW.hpp"
 #endif
+
 #endif // GPU_MEASURE_METRICS_H_

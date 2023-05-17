@@ -46,25 +46,6 @@ void check_status(hsa_status_t status) {
   }
 }
 
-// Context stored entry type
-struct context_entry_t {
-  bool valid;
-  hsa_agent_t agent;
-  rocprofiler_group_t group;
-  rocprofiler_callback_data_t data;
-};
-
-// Context callback arg
-struct callbacks_arg_t {
-  rocprofiler_pool_t **pools;
-};
-
-// Handler callback arg
-struct handler_arg_t {
-  rocprofiler_feature_t *features;
-  unsigned feature_count;
-};
-
 hsa_agent_t agent_info_arr[16];
 unsigned agent_info_arr_len;
 
@@ -90,143 +71,72 @@ static hsa_agent_t _get_agent(unsigned gpu_id) {
   return agent_info_arr[gpu_id];
 }
 
+// Context stored entry type
+struct context_entry_t {
+  bool completed;
+  rocprofiler_group_t group;
+  rocprofiler_callback_data_t data;
+  std::vector<rocprofiler_feature_t> features;
+};
+
+std::vector<context_entry_t> context_queue;
+std::vector<rocprofiler_feature_t> current_features;
+
 // Dump stored context entry
-void dump_context_entry(context_entry_t *entry, rocprofiler_feature_t *features,
-                        unsigned feature_count) {
-  volatile std::atomic<bool> *valid =
-      reinterpret_cast<std::atomic<bool> *>(&entry->valid);
-  while (valid->load() == false)
-    sched_yield();
+bool context_handler(rocprofiler_group_t group, void *arg) {
+  context_entry_t *entry = reinterpret_cast<context_entry_t *>(arg);
+  //std::cout << "context handler\n";
 
-  const std::string kernel_name = entry->data.kernel_name;
-  const rocprofiler_dispatch_record_t *record = entry->data.record;
+  //dump_context_entry(entry, entry->features.data(), entry->features.size());
 
-  fflush(stdout);
-  fprintf(stdout,
-          "kernel symbol(0x%lx) name(\"%s\") tid(%u) queue-id(%u) gpu-id(%u) ",
-          entry->data.kernel_object, kernel_name.c_str(), entry->data.thread_id,
-          entry->data.queue_id, 0);
-  if (record)
-    fprintf(stdout, "time(%lu,%lu,%lu,%lu)", record->dispatch, record->begin,
-            record->end, record->complete);
-  fprintf(stdout, "\n");
-  fflush(stdout);
+  check_status(rocprofiler_group_get_data(&entry->group));
+  check_status(rocprofiler_get_metrics(entry->group.context));
 
-  rocprofiler_group_t &group = entry->group;
-  if (group.context == NULL) {
-    fatal("context is NULL\n");
-  }
-  if (feature_count > 0) {
-    hsa_status_t status = rocprofiler_group_get_data(&group);
-    check_status(status);
-    status = rocprofiler_get_metrics(group.context);
-    check_status(status);
-  }
-
-  for (unsigned i = 0; i < feature_count; ++i) {
-    const rocprofiler_feature_t *p = &features[i];
-    fprintf(stdout, ">  %s ", p->name);
-    switch (p->data.kind) {
-    // Output metrics results
-    case ROCPROFILER_DATA_KIND_INT64:
-      fprintf(stdout, "= (%lu)\n", p->data.result_int64);
-      break;
-    case ROCPROFILER_DATA_KIND_DOUBLE:
-      fprintf(stdout, "= (%lf)\n", p->data.result_double);
-      break;
-    default:
-      fprintf(stderr, "Undefined data kind(%u)\n", p->data.kind);
-      abort();
-    }
-  }
+  entry->completed = true;
+  return true;
 }
 
-// Profiling completion handler
-// Dump and delete the context entry
-// Return true if the context was dumped successfully
-bool context_handler(const rocprofiler_pool_entry_t *entry, void *arg) {
-  std::cout << "context_handler\n";
-  // Context entry
-  context_entry_t *ctx_entry =
-      reinterpret_cast<context_entry_t *>(entry->payload);
-  handler_arg_t *handler_arg = reinterpret_cast<handler_arg_t *>(arg);
-
-  dump_context_entry(ctx_entry, handler_arg->features,
-                     handler_arg->feature_count);
-
-  return false;
-}
-
-// Kernel disoatch callback
+// Kernel dispatch callback
 hsa_status_t dispatch_callback(const rocprofiler_callback_data_t *callback_data,
                                void *arg, rocprofiler_group_t *group) {
-  std::cout << "dispatch callback\n";
-  // Passed tool data
+  //std::cout << "dispatch callback\n";
   hsa_agent_t agent = _get_agent(0);
-  // HSA status
-  hsa_status_t status = HSA_STATUS_ERROR;
+
+
+  context_queue.push_back(context_entry_t());
+  auto entry = &(context_queue.back());
+  entry->features = current_features;
+
+  // context properties
+  rocprofiler_properties_t properties{};
+  properties.handler = context_handler;
+  properties.handler_arg = (void *)entry;
 
   // Open profiling context
-  const unsigned gpu_id = 0;
-  callbacks_arg_t *callbacks_arg = reinterpret_cast<callbacks_arg_t *>(arg);
-  rocprofiler_pool_t *pool = callbacks_arg->pools[gpu_id];
-  rocprofiler_pool_entry_t pool_entry{};
-  status = rocprofiler_pool_fetch(pool, &pool_entry);
-  check_status(status);
+  rocprofiler_t *context = NULL;
+  check_status(rocprofiler_open(agent, entry->features.data(), entry->features.size(), &context, 0,
+                                &properties));
 
-  // Profiling context entry
-  rocprofiler_t *context = pool_entry.context;
-  context_entry_t *entry =
-      reinterpret_cast<context_entry_t *>(pool_entry.payload);
+  // Check that we have only one profiling group
+  uint32_t group_count = 0;
+  check_status(rocprofiler_group_count(context, &group_count));
+  assert(group_count == 1);
+
   // Get group[0]
-  status = rocprofiler_get_group(context, 0, group);
-  check_status(status);
+  check_status(rocprofiler_get_group(context, 0, group));
 
   // Fill profiling context entry
-  entry->agent = agent;
   entry->group = *group;
+  entry->completed = false;
   entry->data = *callback_data;
   entry->data.kernel_name = strdup(callback_data->kernel_name);
-  reinterpret_cast<std::atomic<bool> *>(&entry->valid)->store(true);
 
   return HSA_STATUS_SUCCESS;
 }
 
-unsigned metrics_input(rocprofiler_feature_t **ret) {
-  // Profiling feature objects
-  const unsigned feature_count = 10;
-  rocprofiler_feature_t *features = new rocprofiler_feature_t[feature_count];
-  memset(features, 0, feature_count * sizeof(rocprofiler_feature_t));
-
-  // PMC events
-  features[0].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[0].name = "GRBM_COUNT";
-  features[1].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[1].name = "GRBM_GUI_ACTIVE";
-  features[2].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[2].name = "GPUBusy";
-  features[3].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[3].name = "SQ_WAVES";
-  features[4].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[4].name = "SQ_INSTS_VALU";
-  features[5].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[5].name = "VALUInsts";
-  features[6].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[6].name = "TCC_HIT_sum";
-  features[7].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[7].name = "TCC_MISS_sum";
-  features[8].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[8].name = "WRITE_SIZE";
-  features[9].kind = ROCPROFILER_FEATURE_KIND_METRIC;
-  features[9].name = "FETCH_SIZE";
-
-  *ret = features;
-  return feature_count;
-}
 
 void initMeasureMetric() {
 
-  hsa_init();
   unsigned gpu_count = _get_device_count();
   agent_info_arr_len = gpu_count;
 
@@ -234,46 +144,12 @@ void initMeasureMetric() {
     hsa_agent_t agent = _get_agent(gpu_id);
     std::cout << "Agent " << gpu_id << "\n";
   }
-
-  hsa_agent_t agent = _get_agent(0);
-  // Available GPU agents
-
-  // Getting profiling features
-  rocprofiler_feature_t *features = NULL;
-  unsigned feature_count = metrics_input(&features);
-
-  // Handler arg
-  handler_arg_t *handler_arg = new handler_arg_t{};
-  handler_arg->features = features;
-  handler_arg->feature_count = 2;
-
-  // Context properties
-  rocprofiler_pool_properties_t properties{};
-  properties.num_entries = 100;
-  properties.payload_bytes = sizeof(context_entry_t);
-  properties.handler = context_handler;
-  properties.handler_arg = handler_arg;
-
-  // Adding dispatch observer
-  callbacks_arg_t *callbacks_arg = new callbacks_arg_t{};
-  callbacks_arg->pools = new rocprofiler_pool_t *[gpu_count];
-
-  rocprofiler_pool_t *pool = NULL;
-  hsa_status_t status =
-      rocprofiler_pool_open(agent, features, 2, &pool,
-                            0 /*ROCPROFILER_MODE_SINGLEGROUP*/, &properties);
-  check_status(status);
-  rocprofiler_pool_t *pool2 = NULL;
-  status =
-      rocprofiler_pool_open(agent, features + 2, 2, &pool2,
-                            0 /*ROCPROFILER_MODE_SINGLEGROUP*/, &properties);
-  check_status(status);
-  callbacks_arg->pools[0] = pool2;
+  hsa_init();
 
   rocprofiler_queue_callbacks_t callbacks_ptrs{};
   callbacks_ptrs.dispatch = dispatch_callback;
-  std::cout << "set queue callbacks\n";
-  rocprofiler_set_queue_callbacks(callbacks_ptrs, callbacks_arg);
+  //std::cout << "set queue callbacks\n";
+  rocprofiler_set_queue_callbacks(callbacks_ptrs, NULL);
 }
 
 void cleanup() {
@@ -282,17 +158,75 @@ void cleanup() {
 }
 
 
-void measureBandwidthStart() {
+void measureMetricsStart(std::vector<const char*> metricNames) {
+
   static bool initialized = false;
   if (!initialized) {
     initMeasureMetric();
     initialized = true;
   }
+
+  hsa_agent_t agent = _get_agent(0);
+  // Available GPU agents
+
+  current_features.clear();
+  for(auto & metricName : metricNames) {
+    current_features.push_back({ROCPROFILER_FEATURE_KIND_METRIC, metricName});
+  }
+
+
   rocprofiler_start_queue_callbacks();
 }
 
+void measureBandwidthStart() {
+  measureMetricsStart({"FETCH_SIZE", "WRITE_SIZE", "VALUInsts"});
+}
+
 std::vector<double> measureMetricStop() {
+  if(context_queue.size() == 0) {
+    std::cout << "measureMetricStop: no kernel kaunch was intercepted\n";
+  }
+
+
+  bool all_completed = false;
+  while (!all_completed) {
+    all_completed = true;
+    for (auto &entry : context_queue) {
+      all_completed &= entry.completed;
+    }
+    sched_yield();
+  }
+
 
   rocprofiler_stop_queue_callbacks();
-  return std::vector<double>(2);
+
+  std::vector<double> values;
+
+  for(auto& entry : context_queue) {
+    const std::string kernel_name = entry.data.kernel_name;
+    const rocprofiler_dispatch_record_t *record = entry.data.record;
+
+    std::cout << kernel_name << "\n";
+
+    for (auto &p : entry.features) {
+      std::cout << p.name << ": ";
+      switch (p.data.kind) {
+      // Output metrics results
+      case ROCPROFILER_DATA_KIND_INT64:
+        values.push_back( (double) p.data.result_int64 );
+        std::cout << values.back();
+        break;
+      case ROCPROFILER_DATA_KIND_DOUBLE:
+        values.push_back( (double) p.data.result_double );
+        std::cout << values.back();
+        break;
+      default:
+        fprintf(stderr, "Undefined data kind(%u)\n", p.data.kind);
+        abort();
+      }
+      std::cout << "\n";
+    }
+  }
+  context_queue.clear();
+  return values;
 }
