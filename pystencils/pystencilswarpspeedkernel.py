@@ -76,7 +76,7 @@ def getFieldExprs(kernel):
             substitutedAddress = substitutedAddress.subs(
                 zip(
                     substitutedAddress.atoms(ps.kernelparameters.FieldPointerSymbol),
-                    [32 - access.field.byte_offset // dtype],
+                    [128 - access.field.byte_offset // dtype],
                 )
             )
 

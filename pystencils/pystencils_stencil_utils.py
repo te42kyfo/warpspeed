@@ -43,6 +43,8 @@ def blockThreads(assignments, blocking_factors):
         def shiftIndices(expr):
             if isinstance(expr, psast.Field.Access):
                 return expr.get_shifted(bx, by, bz)
+            if isinstance(expr, psast.Block):
+                return psast.Block([shiftIndices(arg) for arg in expr.args])
             if len(expr.args) > 0:
                 return expr.func(*[shiftIndices(arg) for arg in expr.args])
             return expr
@@ -153,4 +155,4 @@ def getStencilKernel(
     )
     bufferSizeBytes = fieldSize[0]*fieldSize[1]*fieldSize[2] * np.dtype("d").itemsize
 
-    return ast, domainSize, bufferSizeBytes
+    return ast, domainSize, bufferSizeBytes, byte_offset
