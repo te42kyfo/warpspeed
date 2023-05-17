@@ -28,10 +28,11 @@ def loadDLLs(API):
             py_object,
             py_object,
             py_object,
+            py_object,
         ]
 
 
-def time2BufferKernel(API, codeString, funcName, blockSize, gridSize, bufferSizeBytes):
+def time2BufferKernel(API, codeString, funcName, blockSize, gridSize, bufferSizeBytes, alignmentBytes):
     loadDLLs(API)
     return c_double(
         my_functions.timeKernel(
@@ -39,17 +40,18 @@ def time2BufferKernel(API, codeString, funcName, blockSize, gridSize, bufferSize
             create_string_buffer(funcName.encode("utf-8")),
             *blockSize,
             *gridSize,
-            c_size_t(bufferSizeBytes)
+            c_size_t(bufferSizeBytes),
+            c_size_t(alignmentBytes)
         )
     ).value
 
 
 def measureMetrics2BufferKernel(
-    API, metricNames, codeString, funcName, blockSize, gridSize, bufferSizeBytes
+        API, metricNames, codeString, funcName, blockSize, gridSize, bufferSizeBytes, alignmentBytes
 ):
     loadDLLs(API)
     res = my_functions.pyMeasureMetrics(
-        metricNames, codeString, funcName, blockSize, gridSize, bufferSizeBytes
+        metricNames, codeString, funcName, blockSize, gridSize, bufferSizeBytes, alignmentBytes
     )
     print("measureMetrics2BufferKernel: " + str(res))
     return res;

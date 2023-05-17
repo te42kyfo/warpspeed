@@ -1,3 +1,4 @@
+#include "../gpu_metrics/gpu_metrics.hpp"
 #include "MeasurementSeries.hpp"
 #include "dtime.hpp"
 #include <Python.h>
@@ -9,7 +10,6 @@
 #include <nvrtc.h>
 #include <string>
 #include <vector>
-#include "../gpu_metrics/gpu_metrics.hpp"
 using namespace std;
 
 #ifdef __HIP__
@@ -52,15 +52,19 @@ inline void __checkCudaErrors(CUresult err, const char *file, const int line) {
 CUdeviceptr src = 0;
 CUdeviceptr dst = 0;
 size_t bufferSizeBytes = 0;
-CUdevice cuDevice;
 CUcontext context;
 bool initialized = false;
 
 void init(size_t newBufferSizeBytes) {
+  bufferSizeBytes += 1024;
+  setenv("HSA_TOOLS_LIB", "/opt/rocm/rocprofiler/lib/librocprofiler64.so", 1);
+  setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 1);
+  setenv("ROCP_HSA_INTERCEPT", "1", 1);
   if (!initialized) {
-    //checkCudaErrors(cuInit(0));
-    //checkCudaErrors(cuDeviceGet(&cuDevice, 0));
-    //checkCudaErrors(cuCtxCreate(&context, 0, cuDevice));
+    checkCudaErrors(cuInit(0));
+    CUdevice cuDevice;
+    checkCudaErrors(cuDeviceGet(&cuDevice, 0));
+    checkCudaErrors(cuCtxCreate(&context, 0, cuDevice));
     initialized = true;
   }
   if (bufferSizeBytes < newBufferSizeBytes) {
@@ -91,8 +95,13 @@ CUfunction buildKernel(const char *kernelText, const char *funcName) {
     nvrtcProgram prog;
     NVRTC_SAFE_CALL(nvrtcCreateProgram(&prog, kernelText, NULL, 0, NULL, NULL));
 
+#ifdef __NVCC__
     const char *opts[] = {"-arch=sm_80"};
-    NVRTC_SAFE_CALL(nvrtcCompileProgram(prog, 1, opts));
+#else
+    const char *opts[] = {};
+#endif
+    NVRTC_SAFE_CALL(
+        nvrtcCompileProgram(prog, sizeof(opts) / sizeof(char *), opts));
 
     size_t logSize;
     NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
@@ -126,13 +135,16 @@ CUfunction buildKernel(const char *kernelText, const char *funcName) {
 extern "C" double timeKernel(const char *kernelText, const char *funcName,
                              int blockSizeX, int blockSizeY, int blockSizeZ,
                              int blockCountX, int blockCountY, int blockCountZ,
-                             size_t bufferSize) {
+                             size_t bufferSizeBytes, size_t alignmentBytes) {
 
-  init(bufferSize);
+  init(bufferSizeBytes);
 
   auto kernel = buildKernel(kernelText, funcName);
 
-  void *args[] = {&src, &dst};
+  std::cout << alignmentBytes << " alignment Bytes\n";
+  void* alignedSrc = (char *)src + 1024 - alignmentBytes;
+  void* alignedDst = (char *)dst + 1024 - alignmentBytes;
+  void *args[] = {&alignedSrc, &alignedDst};
 
   MeasurementSeries times;
 
@@ -151,29 +163,27 @@ extern "C" double timeKernel(const char *kernelText, const char *funcName,
   return times.median();
 }
 
-
-vector<double> measureMetrics(vector<string> metricNames,
+vector<double> measureMetrics(vector<const char *> metricNames,
                               const char *kernelText, const char *funcName,
                               int blockSizeX, int blockSizeY, int blockSizeZ,
                               int blockCountX, int blockCountY, int blockCountZ,
-                              size_t bufferSize) {
-  init(bufferSize);
+                              size_t bufferSizeBytes, size_t alignmentBytes) {
+  init(bufferSizeBytes);
 
 
   auto kernel = buildKernel(kernelText, funcName);
-  void *args[] = {&src, &dst};
-  measureBandwidthStart();
 
-  checkCudaErrors(cuLaunchKernel(kernel, blockCountX, blockCountY,
-                                 blockCountZ, blockSizeX, blockSizeY,
-                                 blockSizeZ, 0, NULL, args, 0));
+  std::cout << alignmentBytes << " alignment Bytes\n";
+  void* alignedSrc = (char *)src + 1024 - alignmentBytes;
+  void* alignedDst = (char *)dst + 1024 - alignmentBytes;
+  void *args[] = {&alignedSrc, &alignedDst};
+  measureMetricsStart(metricNames);
 
+  checkCudaErrors(cuLaunchKernel(kernel, blockCountX, blockCountY, blockCountZ,
+                                 blockSizeX, blockSizeY, blockSizeZ, 0, NULL,
+                                 args, 0));
 
-  auto values =  measureMetricStop();
-  std::cout << "measureMetrics : ";
-  for (auto v : values)
-    std::cout << v << " ";
-  std::cout << "\n";
+  auto values = measureMetricStop();
   return values;
 }
 
@@ -181,13 +191,14 @@ vector<double> measureMetrics(vector<string> metricNames,
 extern "C" PyObject *pyMeasureMetrics(PyObject *metricNames,
                                       PyObject *kernelText, PyObject *funcName,
                                       PyObject *blockSize, PyObject *blockCount,
-                                      PyObject *bufferSize) {
+                                      PyObject *bufferSizeBytes,
+                                      PyObject *alignmentBytes) {
 
-  std::vector<std::string> metricNameVector;
+  std::vector<const char *> metricNameVector;
 
   for (int i = 0; i < PyList_Size(metricNames); i++) {
     char *cstr = (char *)PyUnicode_1BYTE_DATA(PyList_GetItem(metricNames, i));
-    metricNameVector.push_back(std::string(cstr));
+    metricNameVector.push_back(cstr);
   }
 
   auto values = measureMetrics(
@@ -198,7 +209,8 @@ extern "C" PyObject *pyMeasureMetrics(PyObject *metricNames,
       PyLong_AsLong(PyTuple_GetItem(blockSize, 2)),
       PyLong_AsLong(PyTuple_GetItem(blockCount, 0)),
       PyLong_AsLong(PyTuple_GetItem(blockCount, 1)),
-      PyLong_AsLong(PyTuple_GetItem(blockCount, 2)), PyLong_AsLong(bufferSize));
+      PyLong_AsLong(PyTuple_GetItem(blockCount, 2)),
+      PyLong_AsLong(bufferSizeBytes), PyLong_AsLong(alignmentBytes));
 
   PyGILState_STATE gstate = PyGILState_Ensure();
 
@@ -214,30 +226,32 @@ extern "C" PyObject *pyMeasureMetrics(PyObject *metricNames,
 #endif
 int main(int argc, char **) {
 
-
   setenv("HSA_TOOLS_LIB", "/opt/rocm/rocprofiler/lib/librocprofiler64.so", 1);
   setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 1);
   setenv("ROCP_HSA_INTERCEPT", "1", 1);
 
+  for (size_t i = 1; i < (size_t)8 * 1024 * 1024 * 1024; i *= 2) {
+    string codeString =
+        "extern \"C\" __global__ void updateKernel(double* A, double* B) {int "
+        "tidx = threadIdx.x + blockDim.x * blockIdx.x;";
+    codeString += "size_t elementCount = " + to_string(i) + ";\n";
+    codeString += "for(size_t i = tidx; i < elementCount; i += blockDim.x * "
+                  "gridDim.x) {A[i] = 0.2 * A[i];}}";
 
-  for (int i = 1; i < 1024 * 1024 * 1024; i *= 2) {
-    string codeString = "extern \"C\" __global__ void updateKernel(double* A, double* B) {int tidx = threadIdx.x + blockDim.x * blockIdx.x;";
-    codeString += "int elementCount = " + to_string(i) + ";\n";
-    codeString +=  "for(size_t i = tidx; i < elementCount; i += blockDim.x * gridDim.x) {A[i] = 0.2 * A[i];}}";
+    double dt = timeKernel(codeString.c_str(), "updateKernel", 1024, 1, 1, 10,
+                           1, 1, i * sizeof(double), 0);
 
-    double dt = timeKernel(codeString.c_str(), "updateKernel", 1024, 1, 1, 10, 1, 1, i*sizeof(double));
-
-    auto vals = measureMetrics({"FETCH_SIZE", "WRITE_SIZE"},
-        codeString.c_str(), "updateKernel", 1024, 1, 1, i, 10, 1, i*sizeof(double));
+    auto vals = measureMetrics({"FETCH_SIZE", "WRITE_SIZE"}, codeString.c_str(),
+                               "updateKernel", 1024, 1, 1, 10, 1, 1,
+                               i * sizeof(double), 0);
 
     std::cout << std::setw(10) << i << " " << std::setprecision(0) << std::fixed
               << std::setw(7) << dt * 1000000 << " " << std::setw(7)
               << std::setprecision(4) << dt * 1.4e9 / i << " ";
-    for(auto v : vals) {
-      std::cout << v << " ";
+    for (auto v : vals) {
+      std::cout << v * 1024 / i << " B/thread ";
     }
     std::cout << "\n";
-
   }
   return 0;
 }

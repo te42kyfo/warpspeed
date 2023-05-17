@@ -3,8 +3,10 @@
 
 HIP_HOME :=  /opt/rocm
 
-LDFLAGS  :=  -lnvrtc -L$(CUDA_HOME)/lib64 -lcuda -lcudart
-CUDAFLAGS  :=  -O3 -I$(CUDA_HOME)/include -std=c++2a $(shell python3-config --includes)
+LDFLAGS  :=  -lnvrtc -L$(CUDA_HOME)/lib64 -lcuda -lcudart -L$(CUDA_HOME)/extras/CUPTI/lib64 -lcupti  -lnvidia-ml -lnvperf_host -lnvperf_target
+CUDAFLAGS  :=  -O3 -I$(CUDA_HOME)/include -std=c++2a $(shell python3-config --includes) -I$(CUDA_HOME)/extras/CUPTI/include -Wl,-rpath,$(CUDA_HOME)/extras/CUPTI/lib64/
+
+
 HIPFLAGS := -O3 -std=c++2a -I/opt/rocm/include/hip $(shell python3-config --includes) -I$(HIP_HOME)/include/rocprofiler/ -I$(HIP_HOME)/hsa/include/hsa -L$(HIP_HOME)/rocprofiler/lib -lrocprofiler64 -lhsa-runtime64
 
 DEPS := ../gpu_metrics/rocm_metrics/rocm_metrics.hpp
