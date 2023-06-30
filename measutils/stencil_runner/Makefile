@@ -14,11 +14,21 @@ DEPS := ../gpu_metrics/rocm_metrics/rocm_metrics.hpp
 cuda_stencil_runner.so: cuda_stencil_runner.cpp
 	g++ $< -fPIC -shared -o $@ $(LDFLAGS) $(CUDAFLAGS)
 
+cuda_conv_runner.so: cuda_conv_runner.cpp
+	g++ $< -fPIC -shared -o $@ $(LDFLAGS) $(CUDAFLAGS)
+
 hip_stencil_runner.cpp: cuda_stencil_runner.cpp
 	hipify-perl $< > $@
 
 hip_stencil_runner.so: hip_stencil_runner.cpp
 	hipcc $< -fPIC -shared  -o $@ $(HIPFLAGS)
+
+hip_conv_runner.cpp: cuda_conv_runner.cpp
+	hipify-perl $< > $@
+
+hip_conv_runner.so: hip_conv_runner.cpp
+	hipcc $< -fPIC -shared  -o $@ $(HIPFLAGS)
+
 
 cuda_stencil_runner_test: cuda_stencil_runner.cpp
 	g++ $< -o $@ $(LDFLAGS) $(CUDAFLAGS)

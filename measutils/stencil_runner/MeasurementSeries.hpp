@@ -47,8 +47,9 @@ public:
     if (data.size() == 2)
       return abs(data[0] - data[1]) / value();
     std::sort(begin(data), end(data));
-    return abs(*(begin(data) + 1) - *(end(data) - 2)) / value();
+    return abs(*(begin(data)) - *(end(data) - 1)) / value();
   }
+  int count() { return data.size(); }
 
 private:
   std::vector<double> data;
