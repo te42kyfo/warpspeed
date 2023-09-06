@@ -114,7 +114,7 @@ class LaunchConfig:
         domain,
         blocking_factors,
         device,
-        bufferSizeBytes,
+        buffers,
         alignmentBytes=0,
     ):
         self = LaunchConfig()
@@ -145,7 +145,7 @@ class LaunchConfig:
         self.threadsPerBlock = block[0] * block[1] * block[2]
         self.lupsPerThread = reduce(mul, blocking_factors)
         self.flops = kernel.flops
-        self.bufferSizeBytes = bufferSizeBytes
+        self.buffers = buffers
         self.alignmentBytes = alignmentBytes
         self.lupCount = domain[0] * domain[1] * domain[2]
         return self
@@ -417,6 +417,7 @@ class DerivedMetrics:
             self.device.clock
             * self.device.smCount
             * self.device.fp32CycleSM
+            * 2
             / self.lc.flops
         )
 

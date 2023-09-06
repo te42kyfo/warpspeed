@@ -1,58 +1,6 @@
 #!/usr/bin/env python3
 
-import os
-from ctypes import *
-
-filename = None
-my_functions = None
-
-
-def loadDLLs(API):
-    global my_functions
-    if my_functions is None:
-        dirname = os.path.dirname(os.path.abspath(__file__))
-        if len(dirname) == 0:
-            dirname = "."
-        if API == "HIP":
-            filename = os.path.join(dirname, "hip_conv_runner.so")
-        elif API == "CUDA":
-            filename = os.path.join(dirname, "cuda_conv_runner.so")
-
-        my_functions = CDLL(filename, mode=RTLD_GLOBAL)
-        my_functions.timeKernel.restype = c_double
-        my_functions.pyMeasureMetrics.restype = py_object
-        my_functions.pyMeasureMetrics.argtypes = [
-            py_object,
-            py_object,
-            py_object,
-            py_object,
-            py_object,
-            py_object,
-        ]
-
-
-def timeConvKernel(API, codeString, funcName, blockSize, gridSize, args):
-    loadDLLs(API)
-    return c_double(
-        my_functions.timeKernel(
-            create_string_buffer(codeString.encode("utf-8")),
-            create_string_buffer(funcName.encode("utf-8")),
-            *blockSize,
-            *gridSize,
-            *args
-        )
-    ).value
-
-
-def measureMetricsConvKernel(
-    API, metricNames, codeString, funcName, blockSize, gridSize, args
-):
-    loadDLLs(API)
-    res = my_functions.pyMeasureMetrics(
-        metricNames, codeString, funcName, blockSize, gridSize, args
-    )
-    return res
-
+import stencil_runner
 
 if __name__ == "__main__":
     input_channels = 120
@@ -81,17 +29,27 @@ if __name__ == "__main__":
                         ):
                             continue
                         codeString = """const int filter_size = {};
-                                            const int c_in_per_thread = {};
-                                            const int x_per_thread = {};""".format(
-                            3, c_in_per_thread, x_per_thread
+                        const int c_in_per_thread = {};
+                        const int x_per_thread = {};
+                        const int input_channels = {};
+                        const int output_channels = {};
+                        const int width = {};
+                        const int height = {};""".format(
+                            3,
+                            c_in_per_thread,
+                            x_per_thread,
+                            input_channels,
+                            output_channels,
+                            width,
+                            height,
+                            batch_size,
                         )
 
                         codeString += """
 
                 extern "C" __global__ void __launch_bounds__(256)
                 convolution_backward(float* error, float* next_error,
-                                        float* weights, int batch_size, int input_channels,
-                                        int output_channels, int width, int height) {
+                                        float* weights) {
 
                 int y = blockIdx.x * blockDim.x + threadIdx.x;
                 int x0 = blockIdx.y * blockDim.y + threadIdx.y;
@@ -145,32 +103,36 @@ if __name__ == "__main__":
                     """
 
                         block_size = (xblock, yblock, zblock)
-
-                        dt = timeConvKernel(
-                            "CUDA",
-                            codeString,
-                            "convolution_backward",
-                            block_size,
-                            (
-                                width // block_size[0],
-                                height // block_size[1] // x_per_thread,
-                                input_channels // block_size[2] // c_in_per_thread,
-                            ),
-                            [
-                                input_channels,
-                                output_channels,
-                                batch_size,
-                                width,
-                                height,
-                            ],
-                        )
-
                         grid = (
                             width // block_size[0],
                             height // block_size[1] // x_per_thread,
                             input_channels // block_size[2] // c_in_per_thread,
                         )
-                        metrics = measureMetricsConvKernel(
+                        buffers = [
+                            (width + 1)
+                            * (height + 1)
+                            * batch_size
+                            * output_channels
+                            * 4,
+                            (width + 1)
+                            * (height + 1)
+                            * batch_size
+                            * input_channels
+                            * 4,
+                            input_channels * output_channels * 3 * 3 * 4,
+                        ]
+
+                        dt = stencil_runner.timeNBufferKernel(
+                            "CUDA",
+                            codeString,
+                            "convolution_backward",
+                            block_size,
+                            grid,
+                            buffers,
+                            0,
+                        )
+
+                        metrics = stencil_runner.measureMetricsNBufferKernel(
                             "CUDA",
                             [
                                 "dram__bytes_read.sum",
@@ -182,13 +144,8 @@ if __name__ == "__main__":
                             "convolution_backward",
                             block_size,
                             grid,
-                            (
-                                input_channels,
-                                output_channels,
-                                batch_size,
-                                width,
-                                height,
-                            ),
+                            buffers,
+                            0,
                         )
 
                         flops = (

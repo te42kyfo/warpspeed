@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-import stencil_runner.stencil_runner as stencil_runner
+from stencil_runner.stencil_runner import *
 from column_print import *
-from pystencils.display_utils import get_code_str
 
 
 class MeasuredMetrics:
-    def measure(kernel, lc):
+    def measure(codeText, lc):
         codeText = (
-            get_code_str(kernel)
-            .replace("FUNC_PREFIX", '#define int64_t size_t \n extern "C" __global__ ')
-            .replace("RESTRICT", "__restrict__")
+            codeText.replace(
+                "FUNC_PREFIX", '#define int64_t size_t \n extern "C" __global__ '
+            ).replace("RESTRICT", "__restrict__")
             # .replace("blockIdx.x", "0")
             # .replace("blockIdx.y", "0")
             # .replace("blockIdx.z", "0")
@@ -26,14 +25,14 @@ class MeasuredMetrics:
             (
                 self.memLoad,
                 self.memStore,
-            ) = stencil_runner.measureMetrics2BufferKernel(
+            ) = measureMetricsNBufferKernel(
                 lc.API,
                 ["FETCH_SIZE", "WRITE_SIZE"],
                 codeText,
                 "kernel",
                 lc.block,
                 lc.grid,
-                lc.bufferSizeBytes,
+                lc.buffers,
                 lc.alignmentBytes,
             )
 
@@ -44,7 +43,7 @@ class MeasuredMetrics:
                 self.L1Wavefronts_TA,
                 self.UTCL1_requests,
                 self.UTCL1_miss,
-            ) = stencil_runner.measureMetrics2BufferKernel(
+            ) = measureMetricsNBufferKernel(
                 lc.API,
                 [
                     "TCP_TCC_READ_REQ_sum",
@@ -58,7 +57,7 @@ class MeasuredMetrics:
                 "kernel",
                 lc.block,
                 lc.grid,
-                lc.bufferSizeBytes,
+                lc.buffers,
                 lc.alignmentBytes,
             )
 
@@ -87,7 +86,7 @@ class MeasuredMetrics:
                 # self.L2total,
                 self.L2tagRequests,
                 self.L1Wavefronts,
-            ) = stencil_runner.measureMetrics2BufferKernel(
+            ) = measureMetricsNBufferKernel(
                 lc.API,
                 [
                     "dram__bytes_read.sum",
@@ -104,7 +103,7 @@ class MeasuredMetrics:
                 "kernel",
                 lc.block,
                 lc.grid,
-                lc.bufferSizeBytes,
+                lc.buffers,
                 lc.alignmentBytes,
             )
             self.memLoad *= 1 / lc.lupCount
@@ -123,13 +122,13 @@ class MeasuredMetrics:
         self.L2ltc = 1
         self.L2total = 1
 
-        time = stencil_runner.time2BufferKernel(
+        time = timeNBufferKernel(
             lc.API,
             codeText,
             "kernel",
             lc.block,
             lc.grid,
-            lc.bufferSizeBytes,
+            lc.buffers,
             lc.alignmentBytes,
         )
         self.lups = lc.domain[0] * lc.domain[1] * lc.domain[2] / time / 1e9

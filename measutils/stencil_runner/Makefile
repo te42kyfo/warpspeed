@@ -20,7 +20,11 @@ cuda_conv_runner.so: cuda_conv_runner.cpp
 hip_stencil_runner.cpp: cuda_stencil_runner.cpp
 	hipify-perl $< > $@
 
-hip_stencil_runner.so: hip_stencil_runner.cpp
+hip_rtc.hpp: cuda_rtc.hpp
+	hipify-perl $< > $@
+
+
+hip_stencil_runner.so: hip_stencil_runner.cpp hip_rtc.hpp
 	hipcc $< -fPIC -shared  -o $@ $(HIPFLAGS)
 
 hip_conv_runner.cpp: cuda_conv_runner.cpp
@@ -37,8 +41,7 @@ hip_stencil_runner_test: hip_stencil_runner.cpp $(DEPS)
 	hipcc $< -o $@ $(HIPFLAGS) -ldl -DNO_PYTHON
 
 clean:
-	-@rm cuda_stencil_runner.so
-	-@rm hip_stencil_runner.so
+	-@rm *.so
 	-@rm hip_stencil_runner.cpp
 	-@rm cuda_stencil_runner_test
 	-@rm hip_stencil_runner_test

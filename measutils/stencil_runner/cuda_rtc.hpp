@@ -51,7 +51,6 @@ inline void __checkCudaErrors(CUresult err, const char *file, const int line) {
   } while (0)
 
 CUdeviceptr src = 0;
-CUdeviceptr dst = 0;
 size_t bufferSizeBytes = 0;
 CUcontext context;
 bool initialized = false;
@@ -79,10 +78,8 @@ void init(size_t newBufferSizeBytes) {
               << bufferSizeBytes << "\n";
     if (src != 0) {
       checkCudaErrors(cuMemFree(src));
-      checkCudaErrors(cuMemFree(dst));
     }
     checkCudaErrors(cuMemAlloc(&src, newBufferSizeBytes));
-    checkCudaErrors(cuMemAlloc(&dst, newBufferSizeBytes));
     bufferSizeBytes = newBufferSizeBytes;
   }
 }

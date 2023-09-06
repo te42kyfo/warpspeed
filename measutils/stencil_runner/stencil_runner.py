@@ -19,9 +19,8 @@ def loadDLLs(API):
             filename = os.path.join(dirname, "cuda_stencil_runner.so")
 
         my_functions = CDLL(filename, mode=RTLD_GLOBAL)
-        my_functions.timeKernel.restype = c_double
-        my_functions.pyMeasureMetrics.restype = py_object
-        my_functions.pyMeasureMetrics.argtypes = [
+        my_functions.pyMeasureMetricsNBufferKernel.restype = py_object
+        my_functions.pyMeasureMetricsNBufferKernel.argtypes = [
             py_object,
             py_object,
             py_object,
@@ -43,22 +42,6 @@ def loadDLLs(API):
         my_functions.pyTimeNBufferKernel.restype = c_double
 
 
-def time2BufferKernel(
-    API, codeString, funcName, blockSize, gridSize, bufferSizeBytes, alignmentBytes
-):
-    loadDLLs(API)
-    return c_double(
-        my_functions.timeKernel(
-            create_string_buffer(codeString.encode("utf-8")),
-            create_string_buffer(funcName.encode("utf-8")),
-            *blockSize,
-            *gridSize,
-            c_size_t(bufferSizeBytes),
-            c_size_t(alignmentBytes)
-        )
-    ).value
-
-
 def timeNBufferKernel(
     API, codeString, funcName, blockSize, gridSize, buffers, alignmentBytes
 ):
@@ -70,28 +53,26 @@ def timeNBufferKernel(
     ).value
 
 
-def measureMetrics2BufferKernel(
+def measureMetricsNBufferKernel(
     API,
     metricNames,
     codeString,
     funcName,
     blockSize,
     gridSize,
-    bufferSizeBytes,
+    buffers,
     alignmentBytes,
 ):
     loadDLLs(API)
-    res = my_functions.pyMeasureMetrics(
+    return my_functions.pyMeasureMetricsNBufferKernel(
         metricNames,
         codeString,
         funcName,
         blockSize,
         gridSize,
-        bufferSizeBytes,
+        buffers,
         alignmentBytes,
     )
-    print("measureMetrics2BufferKernel: " + str(res))
-    return res
 
 
 if __name__ == "__main__":
@@ -122,3 +103,15 @@ if __name__ == "__main__":
             0,
         )
         print(2 * 256 * 100000 * N * N / dt / 1.0e9)
+
+        values = measureMetricsNBufferKernel(
+            "CUDA",
+            ["dram__bytes_read.sum"],
+            codeString,
+            "func",
+            (256, 1, 1),
+            (100000, 1, 1),
+            [100000 * 256 * N * 8, 100000 * 256 * N * 9],
+            0,
+        )
+        print(values[0] / 256 / 100000)
