@@ -162,10 +162,6 @@ def getL1TLBPages(block, grid, addresses, pageSize):
 
     gridIteration(addresses, block, grid, visitor)
 
-    print(str(visitor.pages) + " pages")
-    print(visitor.pages / grid[0] / grid[1] / grid[2])
-    print(block)
-
     return visitor.pages / grid[0] / grid[1] / grid[2]
 
 

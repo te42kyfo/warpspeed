@@ -8,7 +8,6 @@ from math import ceil, exp
 def getMemBlockVolumeISL3D(
     loadFields, storeFields, device, blockSize, grid, validDomain, waveBlockCount
 ):
-
     t1 = time.process_time()
     for field in loadFields + storeFields:
         if not getattr(field, "accessMap", None) is None:
@@ -57,7 +56,6 @@ def getMemBlockVolumeISL3D(
     )
 
     def getThreadSet(start, end):
-
         start = [start[i] * blockSize[i] for i in range(3)]
         end = [end[i] * blockSize[i] for i in range(3)]
 
@@ -101,10 +99,10 @@ def getMemBlockVolumeISL3D(
     )
 
     print("current thread set: \n" + str(currThreadSet))
-    # print("X,Y,Z plane thread sets:")
-    # print(xplaneThreadSet)
-    # print(yplaneThreadSet)
-    # print(zplaneThreadSet)
+    print("X,Y,Z plane thread sets:")
+    print(xplaneThreadSet)
+    print(yplaneThreadSet)
+    print(zplaneThreadSet)
     print()
 
     def countSet(threadSet):
@@ -138,15 +136,21 @@ def getMemBlockVolumeISL3D(
 
     (
         VLoadNew,
-        VLoadOldX, VLoadOverlapX,
-        VLoadOldY, VLoadOverlapY,
-        VLoadOldZ, VLoadOverlapZ,
+        VLoadOldX,
+        VLoadOverlapX,
+        VLoadOldY,
+        VLoadOverlapY,
+        VLoadOldZ,
+        VLoadOverlapZ,
     ) = getVolumes(loadFields)
     (
         VStoreNew,
-        VStoreOldX, VStoreOverlapX,
-        VStoreOldY, VStoreOverlapY,
-        VStoreOldZ, VStoreOverlapZ,
+        VStoreOldX,
+        VStoreOverlapX,
+        VStoreOldY,
+        VStoreOverlapY,
+        VStoreOldZ,
+        VStoreOverlapZ,
     ) = getVolumes(storeFields)
 
     t2 = time.process_time()

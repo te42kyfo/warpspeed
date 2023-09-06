@@ -29,7 +29,6 @@ def generateColumns(obj, columns):
                     value /= 1024 * 1024
                 if e[1] == "GFlop/s":
                     flops = getattr(getattr(obj, "lc", obj), "flops", 0)
-                    print(flops)
                     if flops > 0:
                         value *= flops
                     else:
