@@ -1,0 +1,10 @@
+*.ncu-rep
+*.svg
+*.jpg
+temp*
+*.so
+*.png
+*.pdf
+__pycache__
+.ipynb_checkpoints
+*.db
