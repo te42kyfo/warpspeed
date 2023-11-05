@@ -31,15 +31,14 @@ for i in range(1, stencilRange + 1):
 
 
 kernel = WarpspeedKernel(
-    [Field("A", loads, 8, domain, stencilRange)],
-    [Field("B", [("tidx", "tidy", "tidz")], 8, domain, stencilRange)],
-    32,
+    loadFields=[Field("A", loads, 8, domain, stencilRange)],
+    storeFields=[Field("B", [("tidx", "tidy", "tidz")], 8, domain, stencilRange)],
+    registers=32,
+    flops=25,
 )
 
 
-lc = LaunchConfig.compute(
-    kernel, blockSize, domain, blockingFactors, device
-)
+lc = LaunchConfig.compute(kernel, blockSize, domain, blockingFactors, device, [domain])
 basic = BasicMetrics.compute(lc, device, kernel)
 pred = DerivedMetrics(lc, basic, device)
 

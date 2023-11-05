@@ -9,6 +9,7 @@ class Field:
         self, name, addresses, datatype, dimensions, alignment, multiplicity=1
     ):
         self.name = name
+        addresses = [[a] if isinstance(a, str) else a for a in addresses]
         self.NDAddresses = [[str(sp.sympify(expr)) for expr in a] for a in addresses]
         # Extend addresses to 3D with "0" as address expressions
         self.NDAddresses = [

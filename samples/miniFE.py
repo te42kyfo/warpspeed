@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import sys
-sys.path.append('../warpspeed')
+
+sys.path.append("../warpspeed")
 
 
 from predict_metrics import *
 import sympy as sp
 from warpspeedkernel import *
-
 
 
 blockSize = (512, 1, 1)
@@ -19,7 +19,6 @@ device = DeviceAmpere()
 
 xySizes = [64, 256, 1024]
 preds = []
-
 
 
 for vectorCount in [1, 4, 16]:
@@ -38,7 +37,9 @@ for vectorCount in [1, 4, 16]:
                     xloads.append(
                         ("tidx + " + str(x), "tidy + " + str(y), "tidz + " + str(z))
                     )
-        loadFields.append(Field("X", xloads, 8, [d + 2 for d in domain], 0, vectorCount))
+        loadFields.append(
+            Field("X", xloads, 8, [d + 2 for d in domain], 0, vectorCount)
+        )
 
         matrixLoads = []
         for row in range(0, 27):
@@ -59,12 +60,23 @@ for vectorCount in [1, 4, 16]:
             Field("idx", matrixLoads, 4, (domain[0], domain[1], domain[2] * 27), 0)
         )
         storeFields.append(
-            Field("Y", [("tidx", "tidy", "tidz")], 8, [d + 2 for d in domain], 0, vectorCount)
+            Field(
+                "Y",
+                [("tidx", "tidy", "tidz")],
+                8,
+                [d + 2 for d in domain],
+                0,
+                vectorCount,
+            )
         )
 
-        kernel = WarpspeedKernel(loadFields, storeFields, 64, flops=27*2*vectorCount)
+        kernel = WarpspeedKernel(
+            loadFields, storeFields, 64, flops=27 * 2 * vectorCount
+        )
 
-        lc = LaunchConfig.compute(kernel, blockSize, domain, blockingFactors, device)
+        lc = LaunchConfig.compute(
+            kernel, blockSize, domain, blockingFactors, device, []
+        )
         basic = BasicMetrics.compute(lc, device, kernel)
         pred = DerivedMetrics(lc, basic, device)
 

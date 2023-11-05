@@ -436,11 +436,15 @@ class DerivedMetrics:
         self.memLoadV4 = self.memLoadV3 + self.memLoadEvicts
 
         self.perfFlops = (
-            self.device.clock
-            * self.device.smCount
-            * self.device.fp32CycleSM
-            * 2
-            / self.lc.flops
+            (
+                self.device.clock
+                * self.device.smCount
+                * self.device.fp32CycleSM
+                * 2
+                / self.lc.flops
+            )
+            if lc.flops > 0
+            else 0
         )
 
         self.perfL1 = (

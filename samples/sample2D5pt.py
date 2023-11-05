@@ -16,7 +16,7 @@ blockingFactors = (1, 1, 1)
 device = DeviceAmpere()
 
 kernel = WarpspeedKernel(
-    [
+    loadFields=[
         Field(
             "A",
             [
@@ -31,11 +31,14 @@ kernel = WarpspeedKernel(
             1,
         )
     ],
-    [Field("B", [("tidx", "tidy", "0")], 8, domain, 1)],
-    32
+    storeFields=[Field("B", [("tidx", "tidy", "0")], 8, domain, 1)],
+    registers=32,
+    flops=4,
 )
 
-lc = LaunchConfig.compute(kernel, blockSize, domain, blockingFactors, device)
+lc = LaunchConfig.compute(
+    kernel, blockSize, domain, blockingFactors, device, (domain, domain)
+)
 basic = BasicMetrics.compute(lc, device, kernel)
 pred = DerivedMetrics(lc, basic, device)
 
