@@ -21,6 +21,16 @@ class MeasuredMetrics:
 
         self = MeasuredMetrics()
 
+        time = timeNBufferKernel(
+            lc.API,
+            codeText,
+            "kernel",
+            lc.block,
+            lc.grid,
+            lc.buffers,
+            lc.alignmentBytes,
+        )
+
         if lc.API == "HIP":
             (
                 self.memLoad,
@@ -85,7 +95,9 @@ class MeasuredMetrics:
                 # self.L2ltc,
                 # self.L2total,
                 self.L2tagRequests,
-                self.L1Wavefronts,
+                self.L1DataPipeWavefronts,
+                self.L1TagWavefronts,
+                self.L1CyclesActive,
             ) = measureMetricsNBufferKernel(
                 lc.API,
                 [
@@ -98,6 +110,8 @@ class MeasuredMetrics:
                     "lts__t_sectors_srcunit_tex.sum",
                     "lts__t_tag_requests.sum",
                     "l1tex__data_pipe_lsu_wavefronts.sum",
+                    "l1tex__t_output_wavefronts_pipe_lsu_mem_global_op_ld.sum",
+                    "l1tex__cycles_active.sum",
                 ],
                 codeText,
                 "kernel",
@@ -114,24 +128,18 @@ class MeasuredMetrics:
             self.L2Load_tex *= 32 / lc.lupCount
             self.L2Load = self.L2Load_tex
             self.L2Store = self.L2Store_tex
-            self.L2Load *= 32 / lc.lupCount
             self.L2tex *= 32 / lc.lupCount
             self.L2tagRequests *= 1 / lc.lupCount
-            self.L1Wavefronts *= 1 / lc.lupCount
+            self.L1TagWavefronts *= 1 / lc.lupCount
+            self.L1DataPipeWavefronts *= 1 / lc.lupCount
+            self.L1CyclesActive *= 1 / lc.lupCount
 
         self.L2ltc = 1
         self.L2total = 1
 
-        time = timeNBufferKernel(
-            lc.API,
-            codeText,
-            "kernel",
-            lc.block,
-            lc.grid,
-            lc.buffers,
-            lc.alignmentBytes,
-        )
         self.lups = lc.domain[0] * lc.domain[1] * lc.domain[2] / time / 1e9
+        self.tflops = self.lups * lc.flops / 1000
+        self.flopsPerLup = lc.flops
 
         return self
 
@@ -214,8 +222,8 @@ class ResultComparer:
     def __str__(self):
         return columnPrint(self, self.columns())
 
-    def html(self):
-        return htmlColumnPrint(self, self.columns())
+    def html(self, referenceCount="Lup"):
+        return htmlColumnPrint(self, self.columns(), referenceCount)
 
     def printSASS(code):
         print(code)

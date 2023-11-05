@@ -41,7 +41,16 @@ class MeasDB:
         self.conn.commit()
 
     def insertValue(
-        self, stencilRange, block, threadFolding, device, basic, meas, lc, fieldSize
+        self,
+        stencilRange,
+        block,
+        threadFolding,
+        device,
+        basic,
+        meas,
+        lc,
+        fieldSize,
+        datatype,
     ):
         self.insertValueKeys(
             {
@@ -53,10 +62,11 @@ class MeasDB:
                 "tfoldy": threadFolding[1],
                 "tfoldz": threadFolding[2],
                 "device": '"' + str(device.name) + '"',
-            },
-            {
                 "domainx": fieldSize[0],
                 "domainy": fieldSize[1],
+                "datatype": '"' + str(datatype) + '"',
+            },
+            {
                 "basic_metrics": "'" + json.dumps(basic.__dict__) + "'",
                 "measured_metrics": "'" + json.dumps(meas.__dict__) + "'",
                 "launch_config": "'" + json.dumps(lc.__dict__) + "'",
@@ -90,7 +100,7 @@ class MeasDB:
             for row in c.fetchall()
         ]
 
-    def getEntry(self, stencilRange, block, threadFolding, fieldSize, device):
+    def getEntry(self, stencilRange, block, threadFolding, fieldSize, datatype, device):
         return self.getEntryKeys(
             {
                 "range": stencilRange,
@@ -101,6 +111,9 @@ class MeasDB:
                 "tfoldy": threadFolding[1],
                 "tfoldz": threadFolding[2],
                 "device": '"' + str(device.name) + '"',
+                "domainx": fieldSize[0],
+                "domainy": fieldSize[1],
+                "datatype": '"' + str(datatype) + '"',
             }
         )
 

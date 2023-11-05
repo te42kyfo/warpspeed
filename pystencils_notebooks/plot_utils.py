@@ -106,13 +106,59 @@ def volumeScatterPlot(values, title=None, lims=None, linear=False):
     xlim = ax.get_xlim()
     ylim = ax.get_ylim()
 
-    ax.plot([0.1, 1150], [0.1, 1150], color="black", alpha=0.2)
-
     ax.set_xticks(
-        [0.1, 1.0, 2, 4, 8, 9, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512]
+        [
+            0.05,
+            0.075,
+            0.1,
+            0.2,
+            0.3,
+            0.5,
+            1.0,
+            2,
+            4,
+            8,
+            9,
+            12,
+            16,
+            24,
+            32,
+            48,
+            64,
+            96,
+            128,
+            192,
+            256,
+            384,
+            512,
+        ]
     )
     ax.set_yticks(
-        [0.1, 1.0, 2, 4, 8, 9, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512]
+        [
+            0.05,
+            0.075,
+            0.1,
+            0.2,
+            0.3,
+            0.5,
+            1.0,
+            2,
+            4,
+            8,
+            9,
+            12,
+            16,
+            24,
+            32,
+            48,
+            64,
+            96,
+            128,
+            192,
+            256,
+            384,
+            512,
+        ]
     )
 
     formatter = matplotlib.ticker.FuncFormatter(lambda x, pos: "{0:g}".format(x))
@@ -126,16 +172,23 @@ def volumeScatterPlot(values, title=None, lims=None, linear=False):
         lim = (min(ylim[0], xlim[0]), max(ylim[1], xlim[1]))
         ax.set_xlim(
             (
-                max(min(lim[0] * 0.9, lim[0] - 0.1), 0.2),
-                max(1, lim[1] * 1.1, lim[1] + 0.1),
+                max(min(lim[0] * 0.9, lim[0] - 0.02), 0.001),
+                max(0.5, lim[1] * 1.1, lim[1] + 0.02),
             )
         )
         ax.set_ylim(
             (
-                max(min(lim[0] * 0.9, lim[0] - 0.1), 0.2),
-                max(1, lim[1] * 1.1, lim[1] + 0.1),
+                max(min(lim[0] * 0.9, lim[0] - 0.02), 0.001),
+                max(0.5, lim[1] * 1.1, lim[1] + 0.02),
             )
         )
+
+    ax.plot(
+        ax.get_xlim(),
+        ax.get_ylim(),
+        color="black",
+        alpha=0.2,
+    )
 
     if not title is None:
         ax.set_title(title)
@@ -145,8 +198,10 @@ def volumeScatterPlot(values, title=None, lims=None, linear=False):
 
     tau, p_value = stats.kendalltau([v[1] for v in values], [v[2] for v in values])
 
-    # text = "MAPE: {:.1f}%,  Kendall's Tau: {:.2f}".format(computeMape(values)*100, tau)
-    text = "MAPE: {:.1f}%".format(computeMape(values) * 100)
+    text = "MAPE: {:.1f}%,  Kendall's Tau: {:.2f}".format(
+        computeMape(values) * 100, tau
+    )
+    # text = "MAPE: {:.1f}%".format(computeMape(values) * 100)
     ax.annotate(
         text,
         (0.04, 0.95),

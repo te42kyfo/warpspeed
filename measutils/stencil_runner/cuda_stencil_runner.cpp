@@ -1,7 +1,7 @@
-#ifdef __NVCC__
-#include "cuda_rtc.hpp"
-#else
+#ifdef __HIPCC__
 #include "hip_rtc.hpp"
+#else
+#include "cuda_rtc.hpp"
 #endif
 #include <Python.h>
 #include <vector>

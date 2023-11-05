@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 
-def generateColumns(obj, columns):
+def generateColumns(obj, columns, referenceCount="perLup"):
     tableColumns = len(columns)
     tableRows = max([len(c) for c in columns])
     columnEntries = []
@@ -33,11 +33,28 @@ def generateColumns(obj, columns):
                         value *= flops
                     else:
                         e = (e[0], "GLup/s")
-                prec = 0 if isinstance(value, int) else 1 if value < 50 else 0
+                if e[1] == "B":
+                    flops = getattr(obj, "flopsPerLup", 0)
+                    flops = getattr(getattr(obj, "p", obj), "flopsPerLup", flops)
+                    flops = getattr(getattr(obj, "lc", obj), "flops", flops)
+                    if flops > 0:
+                        value /= flops
+                        e = (e[0], "B/Flop")
+                    else:
+                        e = (e[0], "B/Lup")
+
+                prec = (
+                    0
+                    if isinstance(value, int)
+                    else 0
+                    if value > 50
+                    else 1
+                    if value > 4
+                    else 2
+                )
                 columnEntries[-2].append(
                     "{value:.{prec}f}".format(value=value, prec=prec)
                 )
-
             columnEntries[-1].append(e[1])
         columnAlignments.extend([">", ">", "<"])
 
@@ -95,5 +112,5 @@ def columnPrint(obj, columns):
     return columnFormat(*generateColumns(obj, columns))
 
 
-def htmlColumnPrint(obj, columns):
-    return htlmColumnFormat(*generateColumns(obj, columns))
+def htmlColumnPrint(obj, columns, referenceCount="perLup"):
+    return htlmColumnFormat(*generateColumns(obj, columns, referenceCount))

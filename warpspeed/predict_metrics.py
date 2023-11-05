@@ -5,7 +5,16 @@ from griditeration import *
 from volumes_isl import *
 from volumes_isl3d import *
 from column_print import *
+from predict import predictPerformance
 import math
+
+
+def perFlop(obj, metric):
+    return getattr(obj, metric) / obj.flopsPerLup
+
+
+def perLup(obj, metric):
+    return getattr(obj, metric)
 
 
 def selectDevice(name):
@@ -17,7 +26,12 @@ def selectDevice(name):
         return Device2080Ti()
 
 
-class DeviceVolta:
+class Device:
+    def peakFP32(self):
+        return self.fp32CycleSM * self.clock * self.smCount * 2
+
+
+class DeviceVolta(Device):
     CLAllocationSize = 128
     L2FetchSize = 32
 
@@ -28,7 +42,7 @@ class DeviceVolta:
     L1Model = "NV"
 
 
-class DeviceCDNA:
+class DeviceCDNA(Device):
     CLAllocationSize = 64
     L2FetchSize = 64
 
@@ -67,7 +81,7 @@ class DeviceAmpere(DeviceVolta):
 
 class DeviceAmpereA100_80GB(DeviceAmpere):
     memBW = 1600
-    L2BW = 5200
+    L2BW = 4500
     name = "A100_80GB"
 
 
@@ -166,12 +180,17 @@ class LaunchConfig:
 class BasicMetrics:
     def compute(lc, device, kernel):
         self = BasicMetrics()
-        self.L1Cycles = getL1Cycles(
+
+        self.L1FieldCycles = getL1Cycles(
             lc.block,
             lc.truncatedWaveSize,
             kernel.loadFields + kernel.storeFields,
             device.L1Model,
         )
+        self.L1DataPipeCycles, self.L1TagCycles, self.L1Cycles = self.L1FieldCycles[
+            "total"
+        ]
+
         # linearLoadAddresses = [ l.linearAddresses for l in kernel.loadFields  ]
         # linearStoreAddresses = [ l.linearAddresses for l in kernel.storeFields  ]
 
@@ -313,8 +332,11 @@ class DerivedMetrics:
         lupsPerThread = (
             lc.blocking_factors[0] * lc.blocking_factors[1] * lc.blocking_factors[2]
         )
+        self.flopsPerLup = lc.flops
 
         # Pass through of the estimated cycles quantity
+        self.L1DataPipeCycles = self.basic.L1DataPipeCycles / lupsPerThread
+        self.L1TagCycles = self.basic.L1TagCycles / lupsPerThread
         self.L1Cycles = self.basic.L1Cycles / lupsPerThread
 
         # Pass through of the estimated cycles quantity
@@ -477,23 +499,40 @@ class DerivedMetrics:
         # naive roofline style performance estimate with RFO balances
         self.perf2LimV4, self.lim2LimV4 = selectLimiter([self.perfMemV4])
 
-        waveLups = (
-            self.device.smCount
-            * self.lc.blocksPerSM
-            * self.lc.threadsPerBlock
-            * self.lc.lupsPerThread
-        )
-        threadCycles = (
-            +300
-            + self.L1Cycles * 16
-            + self.lc.flops * 4
-            + device.clock
-            * (
-                (self.memLoadV3 + self.memStoreV2) * waveLups / device.memBW
-                + (self.L2LoadV2 + self.L2Store) * waveLups / device.L2BW
+        def epm_no_overlap(device, lc, L1Cycles, L2Volume, memVolume):
+            waveLups = (
+                self.device.smCount
+                * self.lc.blocksPerSM
+                * self.lc.threadsPerBlock
+                * self.lc.lupsPerThread
             )
+            threadCycles = (
+                +L1Cycles * self.lc.blocksPerSM * self.lc.threadsPerBlock / 32
+                + lc.flops * 2
+                + device.clock
+                * (
+                    memVolume * waveLups / device.memBW
+                    + L2Volume * waveLups / device.L2BW
+                )
+            )
+            print(
+                "Flops: {:4.0f} L1:  {:4.0f}  L2: {:4.0f}   DRAM: {:4.0f}   total: {:4.0f} ".format(
+                    lc.flops * 2,
+                    L1Cycles,
+                    L2Volume * waveLups / device.L2BW * device.clock,
+                    memVolume * waveLups / device.memBW * device.clock,
+                    threadCycles,
+                )
+            )
+            return waveLups * self.device.clock / threadCycles
+
+        self.perfEPMV3 = predictPerformance(
+            device,
+            lc,
+            self.L1Cycles,
+            (self.L2LoadV2 + self.L2Store) * 32,
+            (self.memLoadV3 + self.memStoreV2) * 32,
         )
-        self.perfEPMV3 = waveLups * self.device.clock / threadCycles
 
         if not meas is None:
             self.perfMemPheno = self.device.memBW / max(
@@ -504,35 +543,29 @@ class DerivedMetrics:
             )
 
             self.perfL1Pheno = (
-                self.device.smCount * self.device.clock / meas.L1Wavefronts
+                self.device.smCount
+                * self.device.clock
+                / max(meas.L1DataPipeWavefronts, meas.L1TagWavefronts)
             )
             self.perfPheno, self.limPheno = selectLimiter(
                 [self.perfFlops, self.perfL1Pheno, self.perfL2Pheno, self.perfMemPheno]
             )
 
             self.perf2LimPheno, self.lim2LimPheno = selectLimiter([self.perfMemPheno])
+            self.perfEPMPheno = predictPerformance(
+                device,
+                lc,
+                max(meas.L1DataPipeWavefronts, meas.L1TagWavefronts) * 32,
+                (meas.L2Load_tex + meas.L2Store) * 32,
+                (meas.memLoad + meas.memStore) * 32,
+            )
 
-            waveLups = (
-                self.device.smCount
-                * self.lc.blocksPerSM
-                * self.lc.threadsPerBlock
-                * self.lc.lupsPerThread
-            )
-            threadCycles = (
-                +400
-                + meas.L1Wavefronts * self.lc.threadsPerBlock * self.lc.blocksPerSM
-                + self.lc.flops * 8
-                + device.clock
-                * (
-                    (meas.memLoad + meas.memStore) * waveLups / device.memBW
-                    + (meas.L2Load + meas.L2Store) * waveLups / device.L2BW
-                )
-            )
-            self.perfEPMPheno = waveLups * self.device.clock / threadCycles
-        # if getattr(lc, "flops", 0) > 0:
-        #    for a in dir(self):
-        #        if a.startswith("perf"):
-        #            self.__dict__[a] = getattr(self, a) * lc.flops
+        if getattr(lc, "flops", 0) > 0:
+            for a in dir(self):
+                if a.startswith("perf"):
+                    self.__dict__["perfTFlops" + a[4:]] = (
+                        getattr(self, a) * lc.flops / 1000
+                    )
 
     def stringKey(self, key, labelWidth, valueWidth):
         kB = key == "smL1Alloc" or key == "waveL2Alloc"

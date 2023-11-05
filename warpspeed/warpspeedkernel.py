@@ -5,9 +5,19 @@ import sympy as sp
 
 
 class Field:
-    def __init__(self, name, addresses, datatype, dimensions, alignment, multiplicity=1):
+    def __init__(
+        self, name, addresses, datatype, dimensions, alignment, multiplicity=1
+    ):
         self.name = name
-        self.NDAddresses = addresses
+        self.NDAddresses = [[str(sp.sympify(expr)) for expr in a] for a in addresses]
+        # Extend addresses to 3D with "0" as address expressions
+        self.NDAddresses = [
+            tuple(list(a) + ["0"] * (3 - len(a)))
+            if not isinstance(a, str)
+            else (a, "0", "0")
+            for a in self.NDAddresses
+        ]
+        self.NDAddresses = list(set(self.NDAddresses))
 
         self.datatype = datatype
         self.dimensions = dimensions
@@ -24,6 +34,13 @@ class Field:
                 self.datatype
             )
             linExpr = sp.sympify(exprString)
+            linExpr = linExpr.subs(
+                [
+                    ("tidx", "blockIdx * blockDimx + tidx"),
+                    ("tidy", "blockIdy * blockDimy + tidy"),
+                    ("tidz", "blockIdz * blockDimz + tidz"),
+                ]
+            )
             return linExpr
 
         def lambdifyExpr(linExpr):
@@ -33,14 +50,6 @@ class Field:
                 ),
                 linExpr,
             )
-
-        # Extend addresses to 3D with "0" as address expressions
-        self.NDAddresses = [
-            tuple(list(a) + ["0"] * (3 - len(a)))
-            if not isinstance(a, str)
-            else (a, "0", "0")
-            for a in self.NDAddresses
-        ]
 
         self.linearExpressions = [linearizeExpr(a) for a in self.NDAddresses]
         self.linearAddresses = [lambdifyExpr(a) for a in self.linearExpressions]

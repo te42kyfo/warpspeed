@@ -12,7 +12,6 @@ from predict_metrics import LaunchConfig
 
 
 def orderLoads(assignments):
-
     fa_symbol_iter = numbered_symbols("fa_")
     loads = {}
     new_assignments = []
@@ -85,6 +84,7 @@ def getStarAssignments(
         ]
     else:
         assignments = [ps.Assignment(dst_field[0, 0, 0], rhs * 0.25)]
+
     if blocking_factors != (1, 1, 1):
         return blockThreads(assignments, blocking_factors)
     else:
@@ -125,19 +125,23 @@ def getBoxAssignments(
 
 
 def getStencilKernel(
-    stencil_range, stencil_type, block_size, blocking_factors, fieldSize
+    stencil_range, stencil_type, block_size, blocking_factors, fieldSize, datatype
 ):
-
     domainSize = [s - 2 * stencil_range for s in fieldSize]
 
     dst_field = ps.fields(
-        "dst : double[{}, {}, {}]".format(*fieldSize), layout="reverse_numpy"
+        "dst : " + datatype + "[{}, {}, {}]".format(*fieldSize),
+        layout="reverse_numpy",
     )
     src_field = ps.fields(
-        "src : double[{}, {}, {}]".format(*fieldSize), layout="reverse_numpy"
+        "src : " + datatype + "[{}, {}, {}]".format(*fieldSize), layout="reverse_numpy"
     )
     ghost_layers = stencil_range
-    byte_offset = ghost_layers * np.dtype("d").itemsize
+    if datatype == "float32":
+        byte_offset = ghost_layers * 4
+    else:
+        byte_offset = ghost_layers * 8
+
     dst_field.byte_offset = byte_offset
     src_field.byte_offset = byte_offset
 
@@ -146,6 +150,7 @@ def getStencilKernel(
         if stencil_type == "star"
         else getBoxAssignments(src_field, dst_field, stencil_range, blocking_factors),
         target="gpu",
+        data_type={"dst": "float", "src": "float", "_constant": "float"},
         ghost_layers=ghost_layers,
         gpu_indexing_params={
             "block_size": block_size,
@@ -153,6 +158,9 @@ def getStencilKernel(
             "blocking_factors": blocking_factors,
         },
     )
-    bufferSizeBytes = fieldSize[0]*fieldSize[1]*fieldSize[2] * np.dtype("d").itemsize
+
+    bufferSizeBytes = (
+        fieldSize[0] * fieldSize[1] * fieldSize[2] * (4 if datatype == "float32" else 8)
+    )
 
     return ast, domainSize, bufferSizeBytes, byte_offset
