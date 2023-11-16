@@ -80,6 +80,9 @@ class MeasuredMetrics:
 
             self.L1Wavefronts_TA *= 1.0 / lc.lupCount
             self.L1Wavefronts_TD *= 1.0 / lc.lupCount
+            self.L1TagWavefronts = self.L1Wavefronts_TA
+            self.L1DataPipeWavefronts = self.L1Wavefronts_TD
+
             self.UTCL1_requests *= 1.0 / lc.lupCount
             self.UTCL1_miss *= 1.0 / lc.lupCount
             self.L1Wavefronts = self.L1Wavefronts_TA
