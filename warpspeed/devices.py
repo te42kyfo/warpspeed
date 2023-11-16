@@ -8,7 +8,9 @@ class Device:
 
 class DeviceVolta(Device):
     CLAllocationSize = 128
-    L2FetchSize = 32
+    CLFetchSize = 32
+
+    warpSize = 32
 
     fp64CycleSM = 32
     fp32CycleSM = 64
@@ -19,7 +21,9 @@ class DeviceVolta(Device):
 
 class DeviceCDNA(Device):
     CLAllocationSize = 64
-    L2FetchSize = 64
+    CLFetchSize = 64
+
+    warpSize = 64
 
     fp64CycleSM = 32
     fp32CycleSM = 64
@@ -94,3 +98,24 @@ class DeviceMI210(DeviceCDNA):
     memBW = 1400
 
     name = "MI210"
+
+
+class DeviceRX6900XT(DeviceCDNA):
+    CLAllocationSize = 64
+    L2FetchSize = 64
+
+    fp64CycleSM = 4
+    fp32CycleSM = 64
+
+    sizeL1 = 32 * 1024
+
+    API = "HIP"
+    L1Model = "CDNA"
+
+    clock = 2.25
+    smCount = 80
+    sizeL2 = 4 * 1024 * 1024
+    L2BW = 2500
+    memBW = 550
+
+    name = "RX6900XT"
