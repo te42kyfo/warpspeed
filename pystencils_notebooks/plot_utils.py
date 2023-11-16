@@ -366,3 +366,74 @@ def scatterPlot(values, title=None, lims=None):
     plt.show()
     plt.close()
     return (fig, ax)
+
+
+def plotPerfProfile(metrics, meas, device):
+    FP32Peak = device.smCount * device.clock * device.fp32CycleSM * 2
+    L1MachineBalance = 1 / device.warpSize / 2 / 2
+    L2MachineBalance = device.L2BW / FP32Peak
+    DRAMMachineBalance = device.memBW / FP32Peak
+
+    L1CodeBalance = metrics.L1Cycles / metrics.lc.flops
+    L2CodeBalance = (metrics.L2LoadV1 + metrics.L2Store) / metrics.lc.flops
+    DRAMCodeBalance = (metrics.memLoadV2 + metrics.memStoreV1) / metrics.lc.flops
+
+    fig, ax = plt.subplots(figsize=[3, 3])
+
+    baseL1 = 0
+    baseL2 = 0
+    baseMem = 0
+    c = 0
+    for field in metrics.fieldL2Load:
+        if field == "total":
+            continue
+
+        ax.bar(
+            [1, 2, 3],
+            [
+                metrics.fieldL1Cycles[field][2] / metrics.lc.flops / L1MachineBalance,
+                metrics.fieldL2Load[field] / metrics.lc.flops / L2MachineBalance,
+                metrics.fieldMemLoadV2[field] / metrics.lc.flops / DRAMMachineBalance,
+            ],
+            bottom=[baseL1, baseL2, baseMem],
+        )
+        baseL1 += metrics.fieldL1Cycles[field][2] / metrics.lc.flops / L1MachineBalance
+        baseL2 += metrics.fieldL2Load[field] / metrics.lc.flops / L2MachineBalance
+        baseMem += metrics.fieldMemLoadV2[field] / metrics.lc.flops / DRAMMachineBalance
+        c += 0.2
+
+    for field in metrics.fieldL2Store:
+        if field == "total":
+            continue
+
+        ax.bar(
+            [1, 2, 3],
+            [
+                metrics.fieldL1Cycles[field][2] / metrics.lc.flops / L1MachineBalance,
+                metrics.fieldL2Store[field] / metrics.lc.flops / L2MachineBalance,
+                metrics.memStoreV1 / metrics.lc.flops / DRAMMachineBalance,
+            ],
+            bottom=[baseL1, baseL2, baseMem],
+        )
+        baseL1 += metrics.fieldL1Cycles[field][2] / metrics.lc.flops / L1MachineBalance
+        baseL2 += metrics.fieldL2Store[field] / metrics.lc.flops / L2MachineBalance
+        c += 0.2
+
+    print()
+
+    ax.bar([1, 2, 3], [1, 1, 1], linewidth=2, edgecolor="black", color="none")
+    ax.bar(
+        [1, 2, 3],
+        [
+            meas.L1DataPipeWavefronts / metrics.lc.flops / L1MachineBalance,
+            (meas.L2Load_tex + meas.L2Store) / metrics.lc.flops / L2MachineBalance,
+            (meas.memStore + meas.memLoad) / metrics.lc.flops / DRAMMachineBalance,
+        ],
+        linewidth=2,
+        edgecolor="red",
+        color="none",
+        width=0.2,
+    )
+    plt.axis("off")
+    plt.show()
+    plt.close(fig)
