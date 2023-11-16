@@ -15,7 +15,9 @@ def getMemBlockVolumeISL3D(
         field.accessMap = None
         for access in field.NDAddresses:
             mapstring = "{{[tidx, tidy, tidz] -> {0}[ax, ay, az] : ax = floor(({1}) / {4}) and ay = {2} and az = {3} }}".format(
-                field.name, *[str(a) for a in access], 32 // field.datatype
+                field.name,
+                *[str(a) for a in access],
+                device.CLFetchSize // field.datatype
             )
             if field.accessMap is None:
                 field.accessMap = isl.BasicMap(mapstring)
@@ -110,29 +112,67 @@ def getMemBlockVolumeISL3D(
 
     cellCount = countSet(currThreadSet)
 
+    fieldVolumes = {}
+
     def getVolumes(fields):
         VNew = 0
         VOldX = VOldY = VOldZ = 0
         VOverlapX = VOverlapY = VOverlapZ = 0
 
+        # the quadratic domain is larger than the actual wave size by this factor
+        qWaveFactor = cellCount / (
+            waveBlockCount * blockSize[0] * blockSize[1] * blockSize[2]
+        )
+
         for field in fields:
             addSet = currThreadSet.apply(field.accessMap)
-            VNew += countSet(addSet) * 32 * field.multiplicity
+            fieldVNew = countSet(addSet) * device.CLFetchSize * field.multiplicity
+            VNew += fieldVNew
 
             xAddSet = xplaneThreadSet.apply(field.accessMap)
-            VOldX += countSet(xAddSet) * 32 * field.multiplicity
-            VOverlapX += countSet(addSet.intersect(xAddSet)) * 32 * field.multiplicity
+            VOldX += countSet(xAddSet) * device.CLFetchSize * field.multiplicity
+            fieldVOverlapX = (
+                countSet(addSet.intersect(xAddSet))
+                * device.CLFetchSize
+                * field.multiplicity
+            )
+            VOverlapX += fieldVOverlapX
             addSet = addSet.subtract(xAddSet)
 
             yAddSet = yplaneThreadSet.apply(field.accessMap)
-            VOldY += countSet(yAddSet) * 32 * field.multiplicity
-            VOverlapY += countSet(addSet.intersect(yAddSet)) * 32 * field.multiplicity
+            VOldY += countSet(yAddSet) * device.CLFetchSize * field.multiplicity
+            fieldVOverlapY = (
+                countSet(addSet.intersect(yAddSet))
+                * device.CLFetchSize
+                * field.multiplicity
+            )
+            VOverlapY += fieldVOverlapY
             addSet = addSet.subtract(yAddSet)
 
             zAddSet = zplaneThreadSet.apply(field.accessMap)
-            VOldZ += countSet(zAddSet) * 32 * field.multiplicity
-            VOverlapZ += countSet(addSet.intersect(zAddSet)) * 32 * field.multiplicity
-        return VNew, VOldX, VOverlapX, VOldY, VOverlapY, VOldZ, VOverlapZ
+            VOldZ += countSet(zAddSet) * device.CLFetchSize * field.multiplicity
+            fieldVOverlapZ = (
+                countSet(addSet.intersect(zAddSet))
+                * device.CLFetchSize
+                * field.multiplicity
+            )
+            VOverlapZ += fieldVOverlapZ
+
+            fieldVolumes[field.name] = {
+                "VNew": fieldVNew / qWaveFactor,
+                "VOverlapY": (fieldVOverlapY) / qWaveFactor,
+                "VOverlapZ": fieldVOverlapZ / qWaveFactor,
+            }
+
+        return (
+            VNew / qWaveFactor,
+            VOldX / qWaveFactor,
+            VOverlapX / qWaveFactor,
+            VOldY / qWaveFactor,
+            VOverlapY / qWaveFactor,
+            VOldZ / qWaveFactor,
+            VOverlapZ / qWaveFactor,
+        )
 
     (
         VLoadNew,
@@ -154,63 +194,13 @@ def getMemBlockVolumeISL3D(
     ) = getVolumes(storeFields)
 
     t2 = time.process_time()
-    # print(
-    #    "{:4.1f},   {:4.1f}   {:4.1f}   {:4.1f},   {:5.1f} {:5.1f} {:5.1f},  {:6.1f} ms".format(
-    #        VLoadNew / cellCount,
-    #        VLoadOverlapX / cellCount,
-    #        VLoadOverlapY / cellCount,
-    #        VLoadOverlapZ / cellCount,
-    #        (VLoadOldX + VStoreOldX) / 1024 / 1024,
-    #        (VLoadOldY + VStoreOldY) / 1024 / 1024,
-    #        (VLoadOldZ + VStoreOldZ) / 1024 / 1024,
-    #        (t2 - t1) * 1000,
-    #    )
-    # )
-
-    concurrentThreadCount = (
-        blockSize[0]
-        * blockSize[1]
-        * blockSize[2]
-        * waveDim[0]
-        * waveDim[1]
-        * waveDim[2]
-    )
-
-    def rover(Vnew, Vold):
-        if Vold == 0:
-            coverage = 100
-        else:
-            coverage = (device.sizeL2 - Vnew) / Vold
-        if coverage >= 1.0:
-            return 1.0
-
-        if coverage <= 0:
-            return 0.0
-
-        return 1.0 * exp(-1000 * exp(-16 * (coverage - 0.3)))
-
-    VnewFactor = (
-        waveBlockCount * (blockSize[0] * blockSize[1] * blockSize[2]) / cellCount
-    )
-
-    # print(
-    #    "Vnew : {:5.3f} -> {:5.3f},  {:5.3f} -> {:5.3f}".format(
-    #        VLoadNew / 1024 / 1024, VLoadNew * VnewFactor / 1024 / 1024,
-    #        VStoreNew / 1024 / 1024, VStoreNew * VnewFactor / 1024 / 1024
-    #    )
-    # )
-
-    roverX = rover(0, VLoadOldX + VStoreOldX)
-    roverY = rover(0, VLoadOldY + VStoreOldY)
-    roverZ = rover(0, VLoadOldZ + VStoreOldZ)
-
-    # print( "Coverages : {:5.3f} {:5.3f} {:5.3f}".format(roverX,roverY,roverZ))
 
     return (
         VLoadNew,
         VStoreNew,
-        (VLoadOldY + VStoreOldY + VLoadOldX + VStoreOldX, VLoadOldZ + VStoreOldZ),
+        (VLoadOldY + VStoreOldY, VLoadOldZ + VStoreOldZ),
         (VLoadOverlapX + VLoadOverlapY, VLoadOverlapZ),
         (VStoreOverlapX + VStoreOverlapY, VStoreOverlapZ),
-        cellCount,
+        waveBlockCount * blockSize[0] * blockSize[1] * blockSize[2],
+        fieldVolumes,
     )

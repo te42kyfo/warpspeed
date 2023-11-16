@@ -87,13 +87,17 @@ class BasicMetrics:
     def compute(lc, device, kernel):
         self = BasicMetrics()
 
-        self.L1FieldCycles = getL1Cycles(
+        if device.L1Model == "CDNA":
+            kernel.fuseAccesses()
+
+        self.fieldL1Cycles = getL1Cycles(
             lc.block,
             lc.truncatedWaveSize,
             kernel.loadFields + kernel.storeFields,
-            device.L1Model,
+            device,
         )
-        self.L1DataPipeCycles, self.L1TagCycles, self.L1Cycles = self.L1FieldCycles[
+
+        self.L1DataPipeCycles, self.L1TagCycles, self.L1Cycles = self.fieldL1Cycles[
             "total"
         ]
 
@@ -112,18 +116,19 @@ class BasicMetrics:
         self.blockL1Load = max(
             1,
             getL2StoreBlockVolume(
-                lc.block, lc.truncatedWaveSize, kernel.loadFields, device.L2FetchSize
-            ),
+                lc.block, lc.truncatedWaveSize, kernel.loadFields, device
+            )["total"],
         )
+
         self.warpL1Load = max(
-            1, getL1WarpLoadVolume(lc.block, kernel.loadFields, device.L2FetchSize)
+            1, getL1WarpLoadVolume(lc.block, kernel.loadFields, device.CLFetchSize)
         )
-        self.blockL2Load = max(
-            1,
-            getL2LoadBlockVolume(
-                lc.block, lc.truncatedWaveSize, kernel.loadFields, device.L2FetchSize
-            ),
+
+        self.fieldBlockL2Load = getL2LoadBlockVolume(
+            lc.block, lc.truncatedWaveSize, kernel.loadFields, device.CLFetchSize
         )
+
+        self.blockL2Load = max(1, self.fieldBlockL2Load["total"])
 
         self.blockL1TLBPages = max(
             1,
@@ -135,14 +140,11 @@ class BasicMetrics:
             ),
         )
 
-        self.blockL2Store = max(
-            1,
-            getL2StoreBlockVolume(
-                lc.block, lc.truncatedWaveSize, kernel.storeFields, device.L2FetchSize
-            ),
+        self.fieldBlockL2Store = getL2StoreBlockVolume(
+            lc.block, lc.truncatedWaveSize, kernel.storeFields, device
         )
-        # self.waveMemLoadISL, self.waveMemLoadOld, self.waveMemOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genLoadExprs(), [0,0,0] + lc.domain)
-        # self.waveMemStoreISL, self.waveMemStoreOld, self.waveMemStoreOverlap, self.waveValidCells = getMemLoadBlockVolumeISL(lc.block, lc.waveSize, lc.grid, kernel.genStoreExprs(), [0,0,0] + lc.domain)
+
+        self.blockL2Store = self.fieldBlockL2Store["total"]
 
         (
             self.waveMemLoadNew,
@@ -151,6 +153,7 @@ class BasicMetrics:
             self.waveMemLoadOverlap,
             self.waveMemStoreOverlap,
             self.waveValidCells,
+            self.fieldWaveMemVolumes,
         ) = getMemBlockVolumeISL3D(
             kernel.loadFields,
             kernel.storeFields,
@@ -241,9 +244,14 @@ class DerivedMetrics:
         self.flopsPerLup = lc.flops
 
         # Pass through of the estimated cycles quantity
-        self.L1DataPipeCycles = self.basic.L1DataPipeCycles / lupsPerThread
-        self.L1TagCycles = self.basic.L1TagCycles / lupsPerThread
-        self.L1Cycles = self.basic.L1Cycles / lupsPerThread
+        self.fieldL1Cycles = {
+            fieldName: tuple(c / lupsPerThread for c in cycles)
+            for (fieldName, cycles) in basic.fieldL1Cycles.items()
+        }
+
+        self.L1DataPipeCycles = self.fieldL1Cycles["total"][0]
+        self.L1TagCycles = self.fieldL1Cycles["total"][1]
+        self.L1Cycles = self.fieldL1Cycles["total"][2]
 
         # Pass through of the estimated cycles quantity
         self.TLBpages = self.basic.TLBpages
@@ -254,10 +262,17 @@ class DerivedMetrics:
         self.L1Load = self.basic.blockL1Load / self.lc.threadsPerBlock / lupsPerThread
 
         # Remap block quantity to thread balance
-        self.L2LoadV1 = self.basic.blockL2Load / self.lc.threadsPerBlock / lupsPerThread
+        self.fieldL2Load = {
+            fieldName: v / self.lc.threadsPerBlock / self.lc.lupsPerThread
+            for (fieldName, v) in self.basic.fieldBlockL2Load.items()
+        }
+
+        self.L2LoadV1 = self.fieldL2Load["total"]
 
         # Total memory amount per SM allocated by 128B cache lines touched by loads
-        self.smL1Alloc = self.basic.blockL1LoadAlloc * self.lc.blocksPerSM
+        # Multiplying with the number of blocks on the SM seems logic, but blocks are in different phases
+        # and don't allocate the memory at the same time
+        self.smL1Alloc = self.basic.blockL1LoadAlloc  # *  self.lc.blocksPerSM
 
         # Estimate L1 capacity evictions of loads, using coverage as hitrate proxy
         self.L1coverage = self.smL1Alloc / self.device.sizeL1
@@ -272,12 +287,21 @@ class DerivedMetrics:
         self.L2LoadV2 = self.L2LoadV1 + self.L1LoadEvicts
 
         # Store volume written through to L2 cache
-        self.L2Store = self.basic.blockL2Store / self.lc.threadsPerBlock / lupsPerThread
+        self.fieldL2Store = {
+            fieldName: v / self.lc.threadsPerBlock / self.lc.lupsPerThread
+            for (fieldName, v) in self.basic.fieldBlockL2Store.items()
+        }
+        self.L2Store = self.fieldL2Store["total"]
 
         # memory load volume from memory footprint of current wave
         self.memLoadV1 = (
             self.basic.waveMemLoadNew / self.basic.waveValidCells / lupsPerThread
         )
+
+        self.fieldMemLoadV1 = {
+            fieldName: v["VNew"] / self.basic.waveValidCells / lupsPerThread
+            for (fieldName, v) in self.basic.fieldWaveMemVolumes.items()
+        }
 
         # total allocated memory in L2 cache
         self.waveL2Alloc = self.basic.waveMemLoadNew + self.basic.waveMemStoreNew
@@ -286,6 +310,14 @@ class DerivedMetrics:
             w / self.basic.waveValidCells / lupsPerThread
             for w in self.basic.waveMemLoadOverlap
         )
+
+        self.fieldMemLoadOverlap = {
+            fieldName: (
+                v["VOverlapY"] / self.basic.waveValidCells / lupsPerThread,
+                v["VOverlapZ"] / self.basic.waveValidCells / lupsPerThread,
+            )
+            for (fieldName, v) in self.basic.fieldWaveMemVolumes.items()
+        }
 
         def rover0(Vnew, Vold):
             if Vold == 0:
@@ -312,6 +344,15 @@ class DerivedMetrics:
             self.memLoadV1 - self.memLoadOverlapHit[0] - self.memLoadOverlapHit[1]
         )
 
+        self.fieldMemLoadV2 = {
+            fieldName: self.fieldMemLoadV1[fieldName]
+            - self.fieldMemLoadOverlap[fieldName][0]
+            * rover0(0, self.basic.waveMemOld[0])
+            - self.fieldMemLoadOverlap[fieldName][1]
+            * rover1(0, self.basic.waveMemOld[1])
+            for (fieldName, v) in self.basic.fieldWaveMemVolumes.items()
+        }
+        #
         # memory store volume
         self.memStoreV1 = (
             self.basic.waveMemStoreNew / self.basic.waveValidCells / lupsPerThread
@@ -328,8 +369,8 @@ class DerivedMetrics:
         # estimate the L2 load evicts using coverage as proxy
         self.memLoadEvicts = (
             (self.L2LoadV2 - self.memLoadV2)
-            * 0.5
-            * np.exp(-13 * np.exp(-1.8 * self.L2Oversubscription))
+            * 0.386
+            * np.exp(-9 * np.exp(-0.639 * self.L2Oversubscription))
         )
 
         # memory store balance including store evicts
@@ -353,11 +394,7 @@ class DerivedMetrics:
             else 0
         )
 
-        self.perfL1 = (
-            self.device.smCount * self.device.clock * 32 / self.L1Cycles
-            if self.L1Cycles != 0
-            else 0
-        )
+        self.perfL1 = self.device.smCount * self.device.clock / self.L1Cycles
 
         # L2 bandwidth performance estimate. V1 without L1 evicts. load and store are independent
         self.perfL2V1 = self.device.L2BW / (self.L2LoadV1 + self.L2Store)

@@ -52,11 +52,43 @@ class Field:
                 linExpr,
             )
 
+        self.datatypes = [datatype] * len(addresses)
         self.linearExpressions = [linearizeExpr(a) for a in self.NDAddresses]
         self.linearAddresses = [lambdifyExpr(a) for a in self.linearExpressions]
 
 
+def fuseAccesses(fields):
+    for f in fields:
+        accesses = list(
+            [list(a) for a in zip(f.linearExpressions, f.linearAddresses, f.datatypes)]
+        )
+
+        changed = True
+        while changed:
+            changed = False
+            for c, o in [
+                (c, o) for c in range(len(accesses)) for o in range(len(accesses))
+            ]:
+                diff = accesses[o][0] - accesses[c][0]
+                if (
+                    diff == sp.sympify(accesses[c][2])
+                    and accesses[c][2] + accesses[o][2] <= 16
+                ):
+                    accesses[c][2] += accesses[o][2]
+                    del accesses[o]
+                    changed = True
+                    break
+
+        f.linearExpressions = [a[0] for a in accesses]
+        f.linearAddresses = [a[1] for a in accesses]
+        f.datatypes = [a[2] for a in accesses]
+
+
 class WarpspeedKernel:
+    def fuseAccesses(self):
+        fuseAccesses(self.loadFields)
+        fuseAccesses(self.storeFields)
+
     def __init__(self, loadFields, storeFields, registers, flops=0):
         self.registers = registers
         self.flops = flops

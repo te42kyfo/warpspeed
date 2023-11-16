@@ -45,6 +45,24 @@ class CL128Visitor:
         self.CLs += np.unique(addresses // 128).size * multiplicity
 
 
+class CLVisitor:
+    def __init__(self, clSize):
+        self.CLs = 0
+        self.clSize = clSize
+
+    def count(self, addresses, multiplicity=1, datatype=8):
+        self.CLs += np.unique(addresses // self.clSize).size * multiplicity
+
+
+class CLVisitorNoMultiplicity:
+    def __init__(self, clSize):
+        self.CLs = 0
+        self.clSize = clSize
+
+    def count(self, addresses, multiplicity=1, datatype=8):
+        self.CLs += np.unique(addresses // self.clSize).size
+
+
 class PageVisitor:
     def __init__(self, pageSize):
         self.pageSize = pageSize
@@ -90,25 +108,29 @@ class L1thruVisitorNV:
         ) * multiplicity
 
         self.tagCycles += (
-            max(1, np.unique(laneAddresses // 128).size) + 2
-        ) * multiplicity
+            (max(1, np.unique(laneAddresses // 128).size) + 2) * multiplicity / 4
+        )
 
 
 class L1thruVisitorCDNA:
     def __init__(self):
+        self.dataPipeCycles = 0
+        self.tagCycles = 0
+        self.uniform = 0
+        self.coalesced = 0
         self.cycles = 0
 
     def count(self, laneAddresses, multiplicity=1, datatype=8):
-        addresses = list(set([l // 8 for l in laneAddresses]))
-        banks = [0] * 16
-        maxCycles = 0
-        for a in addresses:
-            bank = int(a) % 16
-            banks[bank] += 1
-            maxCycles = max(maxCycles, banks[bank])
-        self.cycles += (
-            max(4 * maxCycles, np.unique(laneAddresses // 1024).size)
-        ) * multiplicity
+        addresses = list(set([l // 64 for l in laneAddresses]))
+
+        cycles = np.unique(addresses).size
+
+        if datatype != 4:
+            cycles = max(64 / 4, cycles)
+
+        self.dataPipeCycles += (cycles) * multiplicity
+
+        self.tagCycles += (cycles) * multiplicity
 
 
 class DummyFieldAccess:
@@ -148,67 +170,64 @@ def getWarp(warpSize, block):
     return warp
 
 
-def getL1Cycles(block, grid, loadStoreFields, L1Model):
-    separatedFields = [
-        DummyFieldAccess(a, field.datatype, field.multiplicity)
-        for field in loadStoreFields
-        for a in field.linearAddresses
-    ]
-
+def getL1Cycles(block, grid, loadStoreFields, device):
     fieldCycles = {}
 
     L1Components = namedtuple("L1Components", "dataPipeCycles tagCycles total")
 
-    if L1Model == "CDNA":
-        halfWarp = getWarp(16, block)
-        outerSize = tuple(grid[i] * block[i] // halfWarp[i] for i in range(0, 3))
-        visitor = L1thruVisitorCDNA()
-        gridIteration(separatedFields, halfWarp, outerSize, visitor)
+    dataPipeCycles = 0
+    tagCycles = 0
+    totalCycles = 0
+    for field in loadStoreFields:
+        separatedFields = [
+            DummyFieldAccess(a, d, field.multiplicity)
+            for a, d in zip(field.linearAddresses, field.datatypes)
+        ]
 
-        return (visitor.cycles) / outerSize[0] / outerSize[1] / outerSize[2] * 2
-    else:
-        dataPipeCycles = 0
-        tagCycles = 0
-        totalCycles = 0
-        for field in loadStoreFields:
-            separatedFields = [
-                DummyFieldAccess(a, field.datatype, field.multiplicity)
-                for a in field.linearAddresses
-            ]
-
+        if device.L1Model == "CDNA":
+            visitor = L1thruVisitorCDNA()
+        else:
             visitor = L1thruVisitorNV()
-            warp = getWarp(32, block)
-            outerSize = tuple(grid[i] * block[i] // warp[i] for i in range(0, 3))
-            gridIteration(separatedFields, warp, outerSize, visitor)
 
-            fieldDataPipeCycles = (
-                visitor.dataPipeCycles / outerSize[0] / outerSize[1] / outerSize[2] + 4
-            )
-            fieldTagCycles = (
-                visitor.tagCycles / outerSize[0] / outerSize[1] / outerSize[2] / 4
-            )
+        warp = getWarp(device.warpSize, block)
+        outerSize = (4, 4, 4)
+        gridIteration(separatedFields, warp, outerSize, visitor)
 
-            fieldCycles[field.name] = L1Components(
-                fieldDataPipeCycles,
-                fieldTagCycles,
-                max(fieldDataPipeCycles, fieldTagCycles),
-            )
+        fieldDataPipeCycles = (
+            visitor.dataPipeCycles
+            / outerSize[0]
+            / outerSize[1]
+            / outerSize[2]
+            / device.warpSize
+        )
+        fieldTagCycles = (
+            visitor.tagCycles
+            / outerSize[0]
+            / outerSize[1]
+            / outerSize[2]
+            / device.warpSize
+        )
+        fieldCycles[field.name] = L1Components(
+            fieldDataPipeCycles,
+            fieldTagCycles,
+            max(fieldDataPipeCycles, fieldTagCycles),
+        )
 
-            dataPipeCycles += fieldDataPipeCycles
-            tagCycles += fieldTagCycles
-            totalCycles = max(fieldDataPipeCycles, fieldTagCycles)
-        # print(visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2])
-        # print(visitor.tagCycles / outerSize[0] / outerSize[1] / outerSize[2])
-        # print(visitor.dataPipeCycles / outerSize[0] / outerSize[1] / outerSize[2])
-        # print(visitor.uniform / outerSize[0] / outerSize[1] / outerSize[2])
-        # print(visitor.coalesced / outerSize[0] / outerSize[1] / outerSize[2])
+        dataPipeCycles += fieldDataPipeCycles
+        tagCycles += fieldTagCycles
+        totalCycles += max(fieldDataPipeCycles, fieldTagCycles)
+    # print(visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2])
+    # print(visitor.tagCycles / outerSize[0] / outerSize[1] / outerSize[2])
+    # print(visitor.dataPipeCycles / outerSize[0] / outerSize[1] / outerSize[2])
+    # print(visitor.uniform / outerSize[0] / outerSize[1] / outerSize[2])
+    # print(visitor.coalesced / outerSize[0] / outerSize[1] / outerSize[2])
 
-        fieldCycles["total"] = L1Components(dataPipeCycles, tagCycles, totalCycles)
-        return fieldCycles
+    fieldCycles["total"] = L1Components(dataPipeCycles, tagCycles, totalCycles)
+    return fieldCycles
 
 
 def getL1AllocatedLoadBlockVolume(block, grid, loadAddresses, CLAllocationSize):
-    visitor = CL128Visitor()
+    visitor = CLVisitorNoMultiplicity(CLAllocationSize)
     gridIteration(loadAddresses, block, grid, visitor)
     return visitor.CLs * CLAllocationSize / grid[0] / grid[1] / grid[2]
 
@@ -230,32 +249,44 @@ def getL1TLBPages(block, grid, addresses, pageSize):
 
 
 def getL2LoadBlockVolume(block, grid, loadAddresses, fetchSize):
-    if fetchSize == 32:
-        visitor = CL32Visitor()
-    elif fetchSize == 64:
-        visitor = CL64Visitor()
+    fieldVolumes = {}
 
-    gridIteration(loadAddresses, block, grid, visitor)
-    return visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
+    totalVolume = 0
+    for field in loadAddresses:
+        if fetchSize == 32:
+            visitor = CL32Visitor()
+        elif fetchSize == 64:
+            visitor = CL64Visitor()
+
+        gridIteration([field], block, grid, visitor)
+        totalVolume += visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
+        fieldVolumes[field.name] = visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
+    fieldVolumes["total"] = totalVolume
+
+    return fieldVolumes
 
 
-def getL2StoreBlockVolume(block, grid, storeFields, fetchSize):
-    warp = getWarp(32, block)
+def getL2StoreBlockVolume(block, grid, storeFields, device):
+    warp = getWarp(device.warpSize, block)
 
     outerSize = tuple(grid[i] * block[i] // warp[i] for i in range(0, 3))
 
-    separatedFields = [
-        DummyFieldAccess(a, field.datatype, field.multiplicity)
-        for field in storeFields
-        for a in field.linearAddresses
-    ]
+    fieldVolume = {}
+    totalVolume = 0
+    for field in storeFields:
+        separatedFields = [
+            DummyFieldAccess(a, d, field.multiplicity)
+            for a, d in zip(field.linearAddresses, field.datatypes)
+        ]
 
-    if fetchSize == 32:
-        visitor = CL32Visitor()
-    elif fetchSize == 64:
-        visitor = CL64Visitor()
-    gridIteration(separatedFields, warp, outerSize, visitor)
-    return visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
+        visitor = CLVisitor(device.CLFetchSize)
+        gridIteration(separatedFields, warp, outerSize, visitor)
+        volume = visitor.CLs * device.CLFetchSize / grid[0] / grid[1] / grid[2]
+        fieldVolume[field.name] = volume
+        totalVolume += volume
+
+    fieldVolume["total"] = totalVolume
+    return fieldVolume
 
 
 def getMemLoadWaveVolume(block, grid, loadAddresses):
