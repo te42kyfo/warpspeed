@@ -29,6 +29,9 @@ def generateColumns(obj, columns, referenceCount="perLup"):
                     value /= 1024 * 1024
                 if e[1] == "GFlop/s":
                     flops = getattr(getattr(obj, "lc", obj), "flops", 0)
+                    flops = getattr(obj, "flopsPerLup", 0)
+                    flops = getattr(getattr(obj, "p", obj), "flopsPerLup", flops)
+                    flops = getattr(getattr(obj, "lc", obj), "flops", flops)
                     if flops > 0:
                         value *= flops
                     else:
@@ -37,9 +40,10 @@ def generateColumns(obj, columns, referenceCount="perLup"):
                     flops = getattr(obj, "flopsPerLup", 0)
                     flops = getattr(getattr(obj, "p", obj), "flopsPerLup", flops)
                     flops = getattr(getattr(obj, "lc", obj), "flops", flops)
+
                     if flops > 0:
-                        value /= flops
-                        e = (e[0], "B/Flop")
+                        value /= flops / 1000
+                        e = (e[0], "mB/Flop")
                     else:
                         e = (e[0], "B/Lup")
 
