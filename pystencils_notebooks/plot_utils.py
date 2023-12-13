@@ -197,11 +197,17 @@ def volumeScatterPlot(values, title=None, lims=None, linear=False):
     ax.set_ylabel("predicted Volume, B/Lup")
 
     tau, p_value = stats.kendalltau([v[1] for v in values], [v[2] for v in values])
+    largestDiffKey = sorted(values, key=lambda v: abs(v[1] - v[2]) / max(v[2], v[1]))[
+        -1
+    ]
+    largestDiff = sorted(
+        [(v[1] - v[2]) / max(v[2], v[1]) for v in values], key=lambda v: abs(v)
+    )[-1]
 
-    text = "MAPE: {:.1f}%,  Kendall's Tau: {:.2f}".format(
-        computeMape(values) * 100, tau
+    text = "MAPE: {:.1f}%,  Kendall's Tau: {:.2f}, \n{} : {:.1f}%".format(
+        computeMape(values) * 100, tau, str(largestDiffKey[0]), largestDiff * 100
     )
-    # text = "MAPE: {:.1f}%".format(computeMape(values) * 100)
+
     ax.annotate(
         text,
         (0.04, 0.95),
@@ -425,7 +431,9 @@ def plotPerfProfile(metrics, meas, device):
     ax.bar(
         [1, 2, 3],
         [
-            meas.L1DataPipeWavefronts / metrics.lc.flops / L1MachineBalance,
+            max(meas.L1TagWavefronts, meas.L1DataPipeWavefronts)
+            / metrics.lc.flops
+            / L1MachineBalance,
             (meas.L2Load_tex + meas.L2Store) / metrics.lc.flops / L2MachineBalance,
             (meas.memStore + meas.memLoad) / metrics.lc.flops / DRAMMachineBalance,
         ],
