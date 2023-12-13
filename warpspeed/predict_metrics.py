@@ -127,8 +127,12 @@ class BasicMetrics:
         self.fieldBlockL2Load = getL2LoadBlockVolume(
             lc.block, lc.truncatedWaveSize, kernel.loadFields, device.CLFetchSize
         )
-
         self.blockL2Load = max(1, self.fieldBlockL2Load["total"])
+
+        self.fieldBlockL2LoadOverlap = getL2LoadOverlapBlockVolume(
+            lc.block, lc.grid, kernel.loadFields, device.CLFetchSize
+        )
+        # self.blockL2Load = max(1, self.fieldBlockL2Load["total"])
 
         self.blockL1TLBPages = max(
             1,
@@ -258,17 +262,6 @@ class DerivedMetrics:
 
         self.L1TLBPages = self.basic.blockL1TLBPages * self.lc.blocksPerSM
 
-        # Remap block quantity to thread balance
-        self.L1Load = self.basic.blockL1Load / self.lc.threadsPerBlock / lupsPerThread
-
-        # Remap block quantity to thread balance
-        self.fieldL2Load = {
-            fieldName: v / self.lc.threadsPerBlock / self.lc.lupsPerThread
-            for (fieldName, v) in self.basic.fieldBlockL2Load.items()
-        }
-
-        self.L2LoadV1 = self.fieldL2Load["total"]
-
         # Total memory amount per SM allocated by 128B cache lines touched by loads
         # Multiplying with the number of blocks on the SM seems logic, but blocks are in different phases
         # and don't allocate the memory at the same time
@@ -276,6 +269,34 @@ class DerivedMetrics:
 
         # Estimate L1 capacity evictions of loads, using coverage as hitrate proxy
         self.L1coverage = self.smL1Alloc / self.device.sizeL1
+
+        # Remap block quantity to thread balance
+        self.L1Load = self.basic.blockL1Load / self.lc.threadsPerBlock / lupsPerThread
+
+        self.L1OverlapOversubscription = min(
+            5, self.basic.fieldBlockL2Load["total"] / self.device.sizeL1
+        )
+
+        # Remap block quantity to thread balance
+        self.fieldL2Load = {
+            fieldName: (
+                self.basic.fieldBlockL2Load[fieldName]
+                - (
+                    self.basic.fieldBlockL2LoadOverlap[fieldName]
+                    * (exp(-0.0036 * exp(8 * self.L1OverlapOversubscription)))
+                )
+            )
+            / self.lc.threadsPerBlock
+            / self.lc.lupsPerThread
+            for (fieldName) in self.basic.fieldBlockL2Load.keys()
+        }
+        print(exp(-0.0036 * exp(3.97 * self.L1OverlapOversubscription)))
+        print(self.basic.fieldBlockL2Load["total"])
+        print(self.basic.fieldBlockL2LoadOverlap["total"])
+        print(self.L1OverlapOversubscription)
+        print(self.fieldL2Load)
+
+        self.L2LoadV1 = self.fieldL2Load["total"]
 
         self.L1LoadEvicts = (
             (self.L1Load - self.L2LoadV1)
