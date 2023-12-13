@@ -72,13 +72,38 @@ class PageVisitor:
         self.pages += np.unique(addresses // (self.pageSize)).size * multiplicity
 
 
-def countBankConflicts(laneAddresses, datatype=8):
+class CollectingVisitor:
+    def __init__(self, clSize):
+        self.clSize = clSize
+        self.CLs = set()
+
+    def count(self, addresses, multiplicity=1, datatype=8):
+        self.CLs.update(list(addresses // self.clSize))
+
+
+class OverlapVisitor:
+    def __init__(self, collection):
+        self.collection = collection
+        self.overlapCLs = 0
+
+    def count(self, addresses, multiplicity=1, datatype=8):
+        self.overlapCLs += (
+            len(
+                self.collection.CLs.intersection(
+                    set(addresses // self.collection.clSize)
+                )
+            )
+            * multiplicity
+        )
+
+
+def countBankConflicts(totalLength, laneAddresses, datatype=8):
     addresses = list(set([l // datatype for l in laneAddresses]))
 
-    banks = [0] * (128 // datatype)
+    banks = [0] * (totalLength // datatype)
     maxCycles = 0
     for a in addresses:
-        bank = int(a) % (128 // datatype)
+        bank = int(a) % (totalLength // datatype)
         banks[bank] += 1
         maxCycles = max(maxCycles, banks[bank])
     return maxCycles
@@ -104,7 +129,7 @@ class L1thruVisitorNV:
             self.coalesced += multiplicity
 
         self.dataPipeCycles += (
-            countBankConflicts(laneAddresses, datatype) + 0.25
+            countBankConflicts(128, laneAddresses, datatype)
         ) * multiplicity
 
         self.tagCycles += (
@@ -122,13 +147,20 @@ class L1thruVisitorCDNA:
 
     def count(self, laneAddresses, multiplicity=1, datatype=8):
         addresses = list(set([l // 64 for l in laneAddresses]))
+        # print(addresses)
+        # print()
+        cycles = np.unique(addresses).size / 1.5
 
-        cycles = np.unique(addresses).size
+        # print("cycles ", cycles)
 
         if datatype != 4:
-            cycles = max(64 / 4, cycles)
+            cycles = max(16 / 4, cycles)
 
-        self.dataPipeCycles += (cycles) * multiplicity
+        # print("cycles ", cycles)
+
+        self.dataPipeCycles += (
+            countBankConflicts(64, laneAddresses, datatype)
+        ) * multiplicity
 
         self.tagCycles += (cycles) * multiplicity
 
@@ -140,7 +172,7 @@ class DummyFieldAccess:
         self.multiplicity = multiplicity
 
 
-def gridIteration(fields, innerSize, outerSize, visitor):
+def gridIteration(fields, innerSize, outerSize, visitor, startBlock=(0, 0, 0)):
     idx = np.arange(0, innerSize[0], dtype=np.int32)
     idy = np.arange(0, innerSize[1], dtype=np.int32)
     idz = np.arange(0, innerSize[2], dtype=np.int32)
@@ -148,6 +180,7 @@ def gridIteration(fields, innerSize, outerSize, visitor):
 
     for field in fields:
         for outerId in np.ndindex(outerSize):
+            outerId += np.array(startBlock)
             addresses = np.empty(0)
             for addressLambda in field.linearAddresses:
                 addresses = np.concatenate(
@@ -158,7 +191,12 @@ def gridIteration(fields, innerSize, outerSize, visitor):
                         ).ravel(),
                     )
                 )
-            visitor.count(addresses, field.multiplicity, field.datatype)
+            # print(addresses)
+            byteAddresses = np.array(
+                [a + i * 4 for i in range(field.datatype // 4) for a in addresses]
+            )
+            # print(byteAddresses)
+            visitor.count(byteAddresses, field.multiplicity, field.datatype)
 
 
 def getWarp(warpSize, block):
@@ -171,6 +209,8 @@ def getWarp(warpSize, block):
 
 
 def getL1Cycles(block, grid, loadStoreFields, device):
+    warpSize = 16 if device.L1Model == "CDNA" else device.warpSize
+
     fieldCycles = {}
 
     L1Components = namedtuple("L1Components", "dataPipeCycles tagCycles total")
@@ -184,13 +224,19 @@ def getL1Cycles(block, grid, loadStoreFields, device):
             for a, d in zip(field.linearAddresses, field.datatypes)
         ]
 
+        warp = getWarp(warpSize, block)
+
         if device.L1Model == "CDNA":
             visitor = L1thruVisitorCDNA()
         else:
             visitor = L1thruVisitorNV()
 
-        warp = getWarp(device.warpSize, block)
-        outerSize = (4, 4, 4)
+        outerSize = [min(64, block[i] * grid[i]) // warp[i] for i in [0, 1, 2]]
+        outerSize[0] = max(16 // block[0], outerSize[0])
+        outerSize = tuple(outerSize)
+
+        # print("warp ", warp)
+        # print("grid ", outerSize)
         gridIteration(separatedFields, warp, outerSize, visitor)
 
         fieldDataPipeCycles = (
@@ -198,14 +244,10 @@ def getL1Cycles(block, grid, loadStoreFields, device):
             / outerSize[0]
             / outerSize[1]
             / outerSize[2]
-            / device.warpSize
+            / warpSize
         )
         fieldTagCycles = (
-            visitor.tagCycles
-            / outerSize[0]
-            / outerSize[1]
-            / outerSize[2]
-            / device.warpSize
+            visitor.tagCycles / outerSize[0] / outerSize[1] / outerSize[2] / warpSize
         )
         fieldCycles[field.name] = L1Components(
             fieldDataPipeCycles,
@@ -263,6 +305,45 @@ def getL2LoadBlockVolume(block, grid, loadAddresses, fetchSize):
         fieldVolumes[field.name] = visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
     fieldVolumes["total"] = totalVolume
 
+    return fieldVolumes
+
+
+def getL2LoadOverlapBlockVolume(block, totalGrid, loadAddresses, fetchSize):
+    currentBlock = [g // 2 for g in totalGrid]
+    blockId = (
+        currentBlock[0]
+        + currentBlock[1] * totalGrid[0]
+        + currentBlock[2] * totalGrid[1] * totalGrid[0]
+    )
+    prevBlockId = blockId
+    prevBlocks = []
+    i = 0
+    while prevBlockId > 0 and i < 40:
+        prevBlockId = max(0, prevBlockId - 108)
+        prevBlocks.append(
+            [
+                prevBlockId % totalGrid[0],
+                prevBlockId // totalGrid[0] % totalGrid[1],
+                prevBlockId // (totalGrid[0] * totalGrid[1]),
+            ]
+        )
+        i += 1
+
+    fieldVolumes = {}
+
+    totalOverlap = 0
+    for field in loadAddresses:
+        collector = CollectingVisitor(fetchSize)
+        visitor = OverlapVisitor(collector)
+
+        gridIteration([field], block, (1, 1, 1), collector, currentBlock)
+        for prevBlock in prevBlocks:
+            gridIteration([field], block, (1, 1, 1), visitor, prevBlock)
+
+        fieldVolumes[field.name] = visitor.overlapCLs * fetchSize / len(prevBlocks)
+        totalOverlap += fieldVolumes[field.name]
+
+    fieldVolumes["total"] = totalOverlap
     return fieldVolumes
 
 
