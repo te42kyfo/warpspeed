@@ -45,10 +45,10 @@ def getCodeString(
 
                 int zero = 1;
                 //if(useZero) {
-                if (next_error[23] == (float) 23.14)
-                        zero = 12;
-                    else
-                        zero = 0;
+                //if (next_error[23] == (float) 23.14)
+                //        zero = 12;
+                //    else
+                //        zero = 0;
                 //}
 
                 float __shared__ shmWeights[c_in_per_thread * blockz][output_channels][filter_size][filter_size];
@@ -91,9 +91,9 @@ def getCodeString(
                 for (int c = 0; c < c_in_per_thread; c++) {
                     int c_in = c_in0 * c_in_per_thread + c;
 #pragma unroll
-                    for (int j = 0; j < filter_size; j++) {
-#pragma unroll
                     for (int i = 0; i < filter_size; i++) {
+#pragma unroll
+                    for (int j = 0; j < filter_size; j++) {
                         float w;
                         if (use_shared)
                             w = shmWeights[threadIdx.z*c_in_per_thread + c][c_out][i][j];
@@ -115,7 +115,7 @@ def getCodeString(
                 for (int ix = 0; ix < x_per_thread; ix++) {
                     int x = x0 * x_per_thread + ix;
                     int c_in = c_in0 * c_in_per_thread + c;
-if(val[c][ix] == 123)
+//if(val[c][ix] == 123)
                 next_error[c_in * (width+2) * (height + 2) +
                            x * (height+2) + y] = val[c][ix];
                 }
@@ -154,8 +154,8 @@ def getConvWarpSpeedKernel(
     errorLoads = []
 
     for iy in range(x_per_thread):
-        for i in [0, 1, 2]:
-            for j in [0, 1, 2]:
+        for j in [0, 1, 2]:
+            for i in [0, 1, 2]:
                 errorLoads.append(
                     (
                         "tidx + " + str(i),
