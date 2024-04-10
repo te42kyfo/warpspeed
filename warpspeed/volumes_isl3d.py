@@ -100,12 +100,12 @@ def getMemBlockVolumeISL3D(
         (0, 0, grid[2] // 2 - 1), (grid[0], grid[1], grid[2] // 2)
     )
 
-    print("current thread set: \n" + str(currThreadSet))
-    print("X,Y,Z plane thread sets:")
-    print(xplaneThreadSet)
-    print(yplaneThreadSet)
-    print(zplaneThreadSet)
-    print()
+    # print("current thread set: \n" + str(currThreadSet))
+    # print("X,Y,Z plane thread sets:")
+    # print(xplaneThreadSet)
+    # print(yplaneThreadSet)
+    # print(zplaneThreadSet)
+    # print()
 
     def countSet(threadSet):
         return threadSet.count_val().to_python()
