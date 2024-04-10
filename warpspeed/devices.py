@@ -18,20 +18,8 @@ class DeviceVolta(Device):
     API = "CUDA"
     L1Model = "NV"
 
-
-class DeviceCDNA(Device):
-    CLAllocationSize = 64
-    CLFetchSize = 64
-
-    warpSize = 64
-
-    fp64CycleSM = 32
-    fp32CycleSM = 64
-
-    sizeL1 = 16 * 1024
-
-    API = "HIP"
-    L1Model = "CDNA"
+    subWarpSize = 32
+    lsuCount = 32
 
 
 class DeviceV100(DeviceVolta):
@@ -64,16 +52,58 @@ class DeviceAmpereA100_80GB(DeviceAmpere):
     name = "A100_80GB"
 
 
-class Device2080Ti(DeviceVolta):  # unverified
-    clock = 2100
-    smCount = 68
-    sizeL2 = 5.5 * 1024 * 1024
-    sizeL1 = 64 * 1024
+class DeviceAmpereA40(DeviceAmpere):
+    clock = 1.74
+    smCount = 84
 
+    sizeL2 = 6 * 1024 * 1024
+    sizeL1 = 128 * 1024
+
+    subWarpSize = 32
+    lsuCount = 16
+    fp32CycleSM = 128
+
+    memBW = 670
     L2BW = 2000
-    memBW = 590
+    name = "A40"
 
-    name = "2080Ti"
+
+class DeviceL40(DeviceAmpereA40):
+    clock = 2.49
+    smCount = 142
+
+    sizeL2 = 96 * 1024 * 1024
+    sizeL1 = 128 * 1024
+
+    memBW = 800
+    L2BW = 6000
+
+    name = "L40"
+
+
+class DeviceHopperH200(DeviceAmpere):
+    clock = 1.98
+    smCount = 132
+    memBW = 3800
+    L2BW = 10000
+    name = "H200"
+
+
+class DeviceCDNA(Device):
+    CLAllocationSize = 64
+    CLFetchSize = 64
+
+    warpSize = 64
+
+    fp64CycleSM = 32
+    fp32CycleSM = 64
+
+    sizeL1 = 16 * 1024
+
+    subWarpSize = 16
+
+    API = "HIP"
+    L1Model = "CDNA"
 
 
 class DeviceMI100(DeviceCDNA):
@@ -100,17 +130,23 @@ class DeviceMI210(DeviceCDNA):
     name = "MI210"
 
 
-class DeviceRX6900XT(DeviceCDNA):
-    CLAllocationSize = 64
-    L2FetchSize = 64
+class DeviceRDNA(Device):
+    CLAllocationSize = 128
+    CLFetchSize = 64
+
+    warpSize = 32
 
     fp64CycleSM = 4
     fp32CycleSM = 64
 
-    sizeL1 = 32 * 1024
+    subWarpSize = 32
 
     API = "HIP"
     L1Model = "CDNA"
+
+
+class DeviceRX6900XT(DeviceRDNA):
+    sizeL1 = 32 * 1024
 
     clock = 2.25
     smCount = 80

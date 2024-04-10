@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
-
+import math
 from functools import partial, reduce
 from operator import mul
 
@@ -110,12 +110,13 @@ def countBankConflicts(totalLength, laneAddresses, datatype=8):
 
 
 class L1thruVisitorNV:
-    def __init__(self):
+    def __init__(self, device):
         self.cycles = 0
         self.dataPipeCycles = 0
         self.tagCycles = 0
         self.uniform = 0
         self.coalesced = 0
+        self.device = device
 
     def count(self, laneAddresses, multiplicity=1, datatype=8):
         if len(set(laneAddresses)) == 1:  # uniform loads
@@ -128,41 +129,52 @@ class L1thruVisitorNV:
         if coalesced:
             self.coalesced += multiplicity
 
-        self.dataPipeCycles += (
-            countBankConflicts(128, laneAddresses, datatype)
-        ) * multiplicity
+        dataPipeCycles = countBankConflicts(128, laneAddresses, datatype)
 
-        self.tagCycles += (
-            (max(1, np.unique(laneAddresses // 128).size) + 2) * multiplicity / 4
+        tagCycles = int(
+            math.ceil((max(1, np.unique(laneAddresses // 128).size) + 2) / 4)
+        )
+
+        # addresses = list(
+        #    set([l // (self.device.CLAllocationSize) for l in laneAddresses])
+        # )
+        # tagCycles = countBankConflicts(5, addresses, 1)
+        # tagCycles = countBankConflicts(4, addresses, 1)
+
+        self.dataPipeCycles += dataPipeCycles * multiplicity
+        self.tagCycles += tagCycles * multiplicity
+        self.cycles += (
+            max(
+                dataPipeCycles,
+                tagCycles,
+                self.device.subWarpSize / self.device.lsuCount,
+            )
+            * multiplicity
         )
 
 
 class L1thruVisitorCDNA:
-    def __init__(self):
+    def __init__(self, device):
         self.dataPipeCycles = 0
         self.tagCycles = 0
         self.uniform = 0
         self.coalesced = 0
         self.cycles = 0
+        self.device = device
 
     def count(self, laneAddresses, multiplicity=1, datatype=8):
-        addresses = list(set([l // 64 for l in laneAddresses]))
-        # print(addresses)
-        # print()
-        cycles = np.unique(addresses).size / 1.5
+        addresses = list(
+            set([l // (self.device.CLAllocationSize) for l in laneAddresses])
+        )
+        tagCycles = countBankConflicts(2, addresses, 1)
+        dataPipeCycles = countBankConflicts(
+            self.device.CLAllocationSize, laneAddresses, datatype
+        )
+        cycles = max(4 if datatype != 4 else 1, tagCycles, dataPipeCycles)
 
-        # print("cycles ", cycles)
-
-        if datatype != 4:
-            cycles = max(16 / 4, cycles)
-
-        # print("cycles ", cycles)
-
-        self.dataPipeCycles += (
-            countBankConflicts(64, laneAddresses, datatype)
-        ) * multiplicity
-
-        self.tagCycles += (cycles) * multiplicity
+        self.tagCycles += tagCycles * multiplicity
+        self.dataPipeCycles += dataPipeCycles * multiplicity
+        self.cycles += cycles * multiplicity
 
 
 class DummyFieldAccess:
@@ -172,7 +184,9 @@ class DummyFieldAccess:
         self.multiplicity = multiplicity
 
 
-def gridIteration(fields, innerSize, outerSize, visitor, startBlock=(0, 0, 0)):
+def gridIteration(
+    fields, innerSize, outerSize, visitor, startBlock=(0, 0, 0), granularity4B=False
+):
     idx = np.arange(0, innerSize[0], dtype=np.int32)
     idy = np.arange(0, innerSize[1], dtype=np.int32)
     idz = np.arange(0, innerSize[2], dtype=np.int32)
@@ -191,12 +205,11 @@ def gridIteration(fields, innerSize, outerSize, visitor, startBlock=(0, 0, 0)):
                         ).ravel(),
                     )
                 )
-            # print(addresses)
-            byteAddresses = np.array(
-                [a + i * 4 for i in range(field.datatype // 4) for a in addresses]
-            )
-            # print(byteAddresses)
-            visitor.count(byteAddresses, field.multiplicity, field.datatype)
+            if granularity4B and field.datatype > 4:
+                addresses = np.array(
+                    [a + i * 4 for i in range(field.datatype // 4) for a in addresses]
+                )
+            visitor.count(addresses, field.multiplicity, field.datatype)
 
 
 def getWarp(warpSize, block):
@@ -209,9 +222,9 @@ def getWarp(warpSize, block):
 
 
 def getL1Cycles(block, grid, loadStoreFields, device):
-    warpSize = 16 if device.L1Model == "CDNA" else device.warpSize
+    warpSize = device.subWarpSize
 
-    fieldCycles = {}
+    fieldL1Metrics = {}
 
     L1Components = namedtuple("L1Components", "dataPipeCycles tagCycles total")
 
@@ -227,9 +240,9 @@ def getL1Cycles(block, grid, loadStoreFields, device):
         warp = getWarp(warpSize, block)
 
         if device.L1Model == "CDNA":
-            visitor = L1thruVisitorCDNA()
+            visitor = L1thruVisitorCDNA(device)
         else:
-            visitor = L1thruVisitorNV()
+            visitor = L1thruVisitorNV(device)
 
         outerSize = [min(64, block[i] * grid[i]) // warp[i] for i in [0, 1, 2]]
         outerSize[0] = max(16 // block[0], outerSize[0])
@@ -237,7 +250,7 @@ def getL1Cycles(block, grid, loadStoreFields, device):
 
         # print("warp ", warp)
         # print("grid ", outerSize)
-        gridIteration(separatedFields, warp, outerSize, visitor)
+        gridIteration(separatedFields, warp, outerSize, visitor, granularity4B=True)
 
         fieldDataPipeCycles = (
             visitor.dataPipeCycles
@@ -249,23 +262,22 @@ def getL1Cycles(block, grid, loadStoreFields, device):
         fieldTagCycles = (
             visitor.tagCycles / outerSize[0] / outerSize[1] / outerSize[2] / warpSize
         )
-        fieldCycles[field.name] = L1Components(
+        fieldCycles = (
+            visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2] / warpSize
+        )
+
+        fieldL1Metrics[field.name] = L1Components(
             fieldDataPipeCycles,
             fieldTagCycles,
-            max(fieldDataPipeCycles, fieldTagCycles),
+            fieldCycles,
         )
 
         dataPipeCycles += fieldDataPipeCycles
         tagCycles += fieldTagCycles
-        totalCycles += max(fieldDataPipeCycles, fieldTagCycles)
-    # print(visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2])
-    # print(visitor.tagCycles / outerSize[0] / outerSize[1] / outerSize[2])
-    # print(visitor.dataPipeCycles / outerSize[0] / outerSize[1] / outerSize[2])
-    # print(visitor.uniform / outerSize[0] / outerSize[1] / outerSize[2])
-    # print(visitor.coalesced / outerSize[0] / outerSize[1] / outerSize[2])
+        totalCycles += fieldCycles
 
-    fieldCycles["total"] = L1Components(dataPipeCycles, tagCycles, totalCycles)
-    return fieldCycles
+    fieldL1Metrics["total"] = L1Components(dataPipeCycles, tagCycles, totalCycles)
+    return fieldL1Metrics
 
 
 def getL1AllocatedLoadBlockVolume(block, grid, loadAddresses, CLAllocationSize):
