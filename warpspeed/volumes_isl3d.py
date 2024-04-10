@@ -22,9 +22,11 @@ def getMemBlockVolumeISL3D(
             if field.accessMap is None:
                 field.accessMap = isl.BasicMap(mapstring)
             else:
-                field.accessMap = field.accessMap.union(isl.BasicMap(mapstring))
+                field.accessMap = field.accessMap.union(
+                    isl.BasicMap(mapstring)
+                ).coalesce()
 
-        field.accessMap.coalesce()
+        field.accessMap = field.accessMap.coalesce()
 
     if validDomain is None:
         validDomain = [0, 0, 0] + [grid[i] * blockSize[i] for i in range(3)]
@@ -125,11 +127,11 @@ def getMemBlockVolumeISL3D(
         )
 
         for field in fields:
-            addSet = currThreadSet.apply(field.accessMap)
+            addSet = currThreadSet.apply(field.accessMap).coalesce()
             fieldVNew = countSet(addSet) * device.CLFetchSize * field.multiplicity
             VNew += fieldVNew
 
-            xAddSet = xplaneThreadSet.apply(field.accessMap)
+            xAddSet = xplaneThreadSet.apply(field.accessMap).coalesce()
             VOldX += countSet(xAddSet) * device.CLFetchSize * field.multiplicity
             fieldVOverlapX = (
                 countSet(addSet.intersect(xAddSet))
@@ -139,7 +141,7 @@ def getMemBlockVolumeISL3D(
             VOverlapX += fieldVOverlapX
             addSet = addSet.subtract(xAddSet)
 
-            yAddSet = yplaneThreadSet.apply(field.accessMap)
+            yAddSet = yplaneThreadSet.apply(field.accessMap).coalesce()
             VOldY += countSet(yAddSet) * device.CLFetchSize * field.multiplicity
             fieldVOverlapY = (
                 countSet(addSet.intersect(yAddSet))
@@ -149,7 +151,7 @@ def getMemBlockVolumeISL3D(
             VOverlapY += fieldVOverlapY
             addSet = addSet.subtract(yAddSet)
 
-            zAddSet = zplaneThreadSet.apply(field.accessMap)
+            zAddSet = zplaneThreadSet.apply(field.accessMap).coalesce()
             VOldZ += countSet(zAddSet) * device.CLFetchSize * field.multiplicity
             fieldVOverlapZ = (
                 countSet(addSet.intersect(zAddSet))
