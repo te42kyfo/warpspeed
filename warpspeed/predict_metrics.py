@@ -290,11 +290,6 @@ class DerivedMetrics:
             / self.lc.lupsPerThread
             for (fieldName) in self.basic.fieldBlockL2Load.keys()
         }
-        print(exp(-0.0036 * exp(3.97 * self.L1OverlapOversubscription)))
-        print(self.basic.fieldBlockL2Load["total"])
-        print(self.basic.fieldBlockL2LoadOverlap["total"])
-        print(self.L1OverlapOversubscription)
-        print(self.fieldL2Load)
 
         self.L2LoadV1 = self.fieldL2Load["total"]
 
