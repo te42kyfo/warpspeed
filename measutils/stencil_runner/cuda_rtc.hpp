@@ -14,7 +14,7 @@
 #include <vector>
 
 #ifdef __HIP__
-#define checkCudaErrors(ans)                                                   \
+#define checkCuErrors(ans)                                                     \
   { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(hipError_t code, const char *file, int line,
                       bool abort = true) {
@@ -25,20 +25,43 @@ inline void gpuAssert(hipError_t code, const char *file, int line,
       exit(code);
   }
 }
+#define GPU_ERROR(ans)                                                         \
+  { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(hipError_t code, const char *file, int line,
+                      bool abort = true) {
+  if (code != hipSuccess) {
+    std::cerr << "GPUassert: \"" << hipGetErrorString(code) << "\"  in " << file
+              << ": " << line << "\n";
+    if (abort)
+      exit(code);
+  }
+}
+
 #else
 
-#define checkCudaErrors(err) __checkCudaErrors(err, __FILE__, __LINE__)
-inline void __checkCudaErrors(CUresult err, const char *file, const int line) {
+#define checkCuErrors(err) __checkCuErrors(err, __FILE__, __LINE__)
+inline void __checkCuErrors(CUresult err, const char *file, const int line) {
   if (CUDA_SUCCESS != err) {
     const char *errorStr = NULL;
     cuGetErrorString(err, &errorStr);
     fprintf(stderr,
-            "checkCudaErrors() Driver API error = %04d \"%s\" from file <%s>, "
+            "checkCuErrors() Driver API error = %04d \"%s\" from file <%s>, "
             "line %i.\n",
             err, errorStr, file, line);
   }
 }
 
+#define GPU_ERROR(ans)                                                         \
+  { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line,
+                      bool abort = true) {
+  if (code != cudaSuccess) {
+    std::cerr << "GPUassert: \"" << cudaGetErrorString(code) << "\"  in "
+              << file << ": " << line << "\n";
+    if (abort)
+      exit(code);
+  }
+}
 #endif
 
 #define NVRTC_SAFE_CALL(x)                                                     \
@@ -50,7 +73,7 @@ inline void __checkCudaErrors(CUresult err, const char *file, const int line) {
     }                                                                          \
   } while (0)
 
-CUdeviceptr src = 0;
+char *src = nullptr;
 size_t bufferSizeBytes = 0;
 CUcontext context;
 bool initialized = false;
@@ -61,10 +84,10 @@ void init(size_t newBufferSizeBytes) {
   setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 1);
   setenv("ROCP_HSA_INTERCEPT", "1", 1);
   if (!initialized) {
-    checkCudaErrors(cuInit(0));
+    checkCuErrors(cuInit(0));
     CUdevice cuDevice;
-    checkCudaErrors(cuDeviceGet(&cuDevice, 0));
-    checkCudaErrors(cuCtxCreate(&context, 0, cuDevice));
+    checkCuErrors(cuDeviceGet(&cuDevice, 0));
+    // checkCudaErrors(cuCtxCreate(&context, 0, cuDevice));
     initialized = true;
   }
   if (bufferSizeBytes < newBufferSizeBytes) {
@@ -76,10 +99,12 @@ void init(size_t newBufferSizeBytes) {
 
     std::cout << "allocate " << newBufferSizeBytes << ", was "
               << bufferSizeBytes << "\n";
-    if (src != 0) {
-      checkCudaErrors(cuMemFree(src));
+    if (src != nullptr) {
+      GPU_ERROR(cudaFree(src));
     }
-    checkCudaErrors(cuMemAlloc(&src, newBufferSizeBytes));
+    GPU_ERROR(cudaMalloc(&src, newBufferSizeBytes));
+    GPU_ERROR(cudaMemset(src, 100, newBufferSizeBytes));
+
     bufferSizeBytes = newBufferSizeBytes;
   }
 }
@@ -120,8 +145,8 @@ CUfunction buildKernel(const char *kernelText, const char *funcName) {
 
     CUmodule module;
     CUfunction kernel;
-    checkCudaErrors(cuModuleLoadDataEx(&module, ptx, 0, 0, 0));
-    checkCudaErrors(cuModuleGetFunction(&kernel, module, funcName));
+    checkCuErrors(cuModuleLoadDataEx(&module, ptx, 0, 0, 0));
+    checkCuErrors(cuModuleGetFunction(&kernel, module, funcName));
 
     funcCache.insert({std::string(kernelText), kernel});
     // NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));

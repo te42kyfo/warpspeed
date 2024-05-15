@@ -2,6 +2,7 @@
 
 import os
 from ctypes import *
+import socket
 
 filename = None
 my_functions = None
@@ -14,9 +15,13 @@ def loadDLLs(API):
         if len(dirname) == 0:
             dirname = "."
         if API == "HIP":
-            filename = os.path.join(dirname, "hip_stencil_runner.so")
+            filename = os.path.join(
+                dirname, "hip_stencil_runner." + socket.gethostname() + ".so"
+            )
         elif API == "CUDA":
-            filename = os.path.join(dirname, "cuda_stencil_runner.so")
+            filename = os.path.join(
+                dirname, "cuda_stencil_runner." + socket.gethostname() + ".so"
+            )
 
         my_functions = CDLL(filename, mode=RTLD_GLOBAL)
         my_functions.pyMeasureMetricsNBufferKernel.restype = py_object
@@ -39,18 +44,16 @@ def loadDLLs(API):
             py_object,
         ]
 
-        my_functions.pyTimeNBufferKernel.restype = c_double
+        my_functions.pyTimeNBufferKernel.restype = py_object
 
 
 def timeNBufferKernel(
     API, codeString, funcName, blockSize, gridSize, buffers, alignmentBytes
 ):
     loadDLLs(API)
-    return c_double(
-        my_functions.pyTimeNBufferKernel(
-            codeString, funcName, blockSize, gridSize, buffers, alignmentBytes
-        )
-    ).value
+    return my_functions.pyTimeNBufferKernel(
+        codeString, funcName, blockSize, gridSize, buffers, alignmentBytes
+    )
 
 
 def measureMetricsNBufferKernel(
@@ -93,7 +96,7 @@ if __name__ == "__main__":
 
         codeString += "if (prod == 12.3213) A[0] = prod;}"
 
-        dt = timeNBufferKernel(
+        results = timeNBufferKernel(
             "CUDA",
             codeString,
             "func",
@@ -102,7 +105,7 @@ if __name__ == "__main__":
             [100000 * 256 * N * 8, 100000 * 256 * N * 9],
             0,
         )
-        print(2 * 256 * 100000 * N * N / dt / 1.0e9)
+        print(2 * 256 * 100000 * N * N / results["time"] / 1.0e9)
 
         values = measureMetricsNBufferKernel(
             "CUDA",
