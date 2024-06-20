@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
+#
+import sys
+
+sys.path.append("..")
+
 from stencil_runner.stencil_runner import *
 from column_print import *
+from devices import *
 
 
 class MeasuredMetrics:
@@ -21,7 +27,7 @@ class MeasuredMetrics:
 
         self = MeasuredMetrics()
 
-        time = timeNBufferKernel(
+        self.time, self.clock, self.power = timeNBufferKernel(
             lc.API,
             codeText,
             "kernel",
@@ -31,13 +37,70 @@ class MeasuredMetrics:
             lc.alignmentBytes,
         )
 
-        if lc.API == "HIP":
+        if lc.API == "HIP" and lc.device == "RX6900XT":
+            (
+                self.valuInsts,
+                self.saluInsts,
+                self.sfetchInsts,
+                rdReq,
+                wrReq,
+            ) = measureMetricsNBufferKernel(
+                lc.API,
+                [
+                    "VALUInsts",
+                    "SALUInsts",
+                    "SFetchInsts",
+                    "GL2C_EA_RDREQ_64B_sum",
+                    "GL2C_EA_WRREQ_64B_sum",
+                ],
+                codeText,
+                "kernel",
+                lc.block,
+                lc.grid,
+                lc.buffers,
+                lc.alignmentBytes,
+            )
+
+            self.memLoad = rdReq * 64 / lc.lupCount
+            self.memStore = wrReq * 64 / lc.lupCount
+
+            L2hits = 1
+            L2miss = 1
+
+            self.L2Load_tex = (L2hits + L2miss) * 64 / lc.lupCount
+            self.L2Store = 1
+
+            self.memStore = 1
+
+            self.L2Load = self.L2Load_tex
+
+            self.L1Wavefronts_TA = 1
+            self.L1Wavefronts_TD = 1
+            self.L1TagWavefronts = self.L1Wavefronts_TA
+            self.L1DataPipeWavefronts = self.L1Wavefronts_TD
+
+            self.UTCL1_requests = 1
+            self.UTCL1_miss = 1
+            self.L1Wavefronts = 1
+
+        elif lc.API == "HIP":
             (
                 self.memLoad,
                 self.memStore,
+                self.valuInsts,
+                self.saluInsts,
+                self.vfetchInsts,
+                self.sfetchInsts,
             ) = measureMetricsNBufferKernel(
                 lc.API,
-                ["FETCH_SIZE", "WRITE_SIZE"],
+                [
+                    "FETCH_SIZE",
+                    "WRITE_SIZE",
+                    "VALUInsts",
+                    "SALUInsts",
+                    "FlatVMemInsts",
+                    "SFetchInsts",
+                ],
                 codeText,
                 "kernel",
                 lc.block,
@@ -101,6 +164,7 @@ class MeasuredMetrics:
                 self.L1DataPipeWavefronts,
                 self.L1TagWavefronts,
                 self.L1CyclesActive,
+                self.valuInsts,
             ) = measureMetricsNBufferKernel(
                 lc.API,
                 [
@@ -115,6 +179,7 @@ class MeasuredMetrics:
                     "l1tex__data_pipe_lsu_wavefronts.sum",
                     "l1tex__t_output_wavefronts_pipe_lsu_mem_global_op_ld.sum",
                     "l1tex__cycles_active.sum",
+                    "sm__inst_executed.sum",
                 ],
                 codeText,
                 "kernel",
@@ -123,6 +188,7 @@ class MeasuredMetrics:
                 lc.buffers,
                 lc.alignmentBytes,
             )
+            self.valuInsts *= 32 / lc.lupCount
             self.memLoad *= 1 / lc.lupCount
             self.memStore *= 1 / lc.lupCount
             self.L2Store *= 32 / lc.lupCount
@@ -140,7 +206,7 @@ class MeasuredMetrics:
         self.L2ltc = 1
         self.L2total = 1
 
-        self.lups = lc.domain[0] * lc.domain[1] * lc.domain[2] / time / 1e9
+        self.lups = lc.domain[0] * lc.domain[1] * lc.domain[2] / self.time / 1e9
         self.tflops = self.lups * lc.flops / 1000
         self.flopsPerLup = lc.flops
 
@@ -154,12 +220,24 @@ class MeasuredMetrics:
     def __str__(self):
         columns = [
             [
+                ("valuInsts", ""),
+                ("saluInsts", ""),
+                ("vfetchInsts", ""),
+                ("sfetchInsts", ""),
+            ],
+            [
+                ("L1Wavefronts", ""),
                 ("L2Load_tex", "B"),
                 ("L2Store", "B"),
                 ("memLoad", "B"),
                 ("memStore", "B"),
             ],
-            [("L1Wavefronts", ""), ("lups", "Lup/s")],
+            [
+                ("power", "W"),
+                ("clock", "MHz"),
+                ("lups", "Lup/s"),
+                ("tflops", "TFlop/s"),
+            ],
         ]
 
         return columnPrint(self, columns)
