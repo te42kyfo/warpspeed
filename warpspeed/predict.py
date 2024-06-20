@@ -47,12 +47,12 @@ def predictPerformanceV1(kernel, block, grid, registers):
         else 0
     )
     Ttotal = Tint + max(TDP, TL1thru) + Tlat_mem + Tlat_L2
-    print(" Tint  TL1thru   TDP  Tlat_mem  Tlat_L2  Ttotal")
-    print(
-        "{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(
-            Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
-        )
-    )
+    # print(" Tint  TL1thru   TDP  Tlat_mem  Tlat_L2  Ttotal")
+    # print(
+    #    "{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(
+    #        Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
+    #    )
+    # )
 
     delta = 100
     for i in range(0, 200):
@@ -83,11 +83,11 @@ def predictPerformanceV1(kernel, block, grid, registers):
         if i > 100 and delta < 0.01:
             break
 
-    print(
-        "{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(
-            Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
-        )
-    )
+    # print(
+    #    "{:5.0f}{:9.0f}  {:4.0f}  {:8.0f}  {:7.0f}  {:6.0f}".format(
+    #        Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
+    #    )
+    # )
     return kernel.flops * blocksPerSM * threadsPerBlock * (clock * SMcount / Ttotal)
 
 
@@ -162,12 +162,12 @@ def predictPerformance(device, lc, L1Cycles, L2WarpVolume, memWarpVolume):
     Tblocksched = device.smCount / 0.5 * lc.blocksPerSM
     Ttotal = Tblocksched + Tint + max(TDP, TL1thru) + Tlat_mem + Tlat_L2
 
-    print("Tblocksched  Tint TL1thru   TDP Tlat_mem Tlat_L2 Ttotal")
-    print(
-        "{:11.0f} {:5.0f} {:7.0f} {:5.0f} {:8.0f} {:7.0f} {:6.0f}".format(
-            Tblocksched, Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
-        )
-    )
+    # print("Tblocksched  Tint TL1thru   TDP Tlat_mem Tlat_L2 Ttotal")
+    # print(
+    #    "{:11.0f} {:5.0f} {:7.0f} {:5.0f} {:8.0f} {:7.0f} {:6.0f}".format(
+    #        Tblocksched, Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
+    #    )
+    # )
 
     delta = 100
     for i in range(0, 200):
@@ -192,11 +192,11 @@ def predictPerformance(device, lc, L1Cycles, L2WarpVolume, memWarpVolume):
         if i > 100 and delta < 0.01:
             break
 
-    print(
-        "{:11.0f} {:5.0f} {:7.0f} {:5.0f} {:8.0f} {:7.0f} {:6.0f}".format(
-            Tblocksched, Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
-        )
-    )
+    # print(
+    #    "{:11.0f} {:5.0f} {:7.0f} {:5.0f} {:8.0f} {:7.0f} {:6.0f}".format(
+    #        Tblocksched, Tint, TL1thru, TDP, Tlat_mem, Tlat_L2, Ttotal
+    #    )
+    # )
     return (
         lc.blocksPerSM * lc.threadsPerBlock * (device.clock * device.smCount / Ttotal)
     )
