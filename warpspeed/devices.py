@@ -5,6 +5,12 @@ class Device:
     def peakFP32(self):
         return self.fp32CycleSM * self.clock * self.smCount * 2
 
+    def getDisplayName(self):
+
+        if hasattr(self, "displayName"):
+            return self.displayName
+        return self.name
+
 
 class DeviceVolta(Device):
     CLAllocationSize = 128
@@ -51,6 +57,8 @@ class DeviceAmpereA100_80GB(DeviceAmpere):
     L2BW = 4500
     name = "A100_80GB"
 
+    displayName = "A100"
+
 
 class DeviceAmpereA40(DeviceAmpere):
     clock = 1.74
@@ -64,7 +72,7 @@ class DeviceAmpereA40(DeviceAmpere):
     fp32CycleSM = 128
 
     memBW = 670
-    L2BW = 2000
+    L2BW = 2200
     name = "A40"
 
 
@@ -87,6 +95,10 @@ class DeviceHopperH200(DeviceAmpere):
     memBW = 3800
     L2BW = 10000
     name = "H200"
+    displayName = "GH200"
+
+    fp64CycleSM = 64
+    fp32CycleSM = 128
 
 
 class DeviceCDNA(Device):
