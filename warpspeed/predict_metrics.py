@@ -277,30 +277,39 @@ class DerivedMetrics:
             5, self.basic.fieldBlockL2Load["total"] / self.device.sizeL1
         )
 
-        # Remap block quantity to thread balance
-        self.fieldL2Load = {
-            fieldName: (
-                self.basic.fieldBlockL2Load[fieldName]
-                - (
-                    self.basic.fieldBlockL2LoadOverlap[fieldName]
-                    * (exp(-0.0036 * exp(8 * self.L1OverlapOversubscription)))
-                )
-            )
+        #
+        self.fieldL2LoadOverlap = {
+            fieldName: (self.basic.fieldBlockL2LoadOverlap[fieldName])
             / self.lc.threadsPerBlock
             / self.lc.lupsPerThread
             for (fieldName) in self.basic.fieldBlockL2Load.keys()
         }
 
-        self.L2LoadV1 = self.fieldL2Load["total"]
+        # Remap block quantity to thread balance
+        self.fieldL2LoadV1 = {
+            fieldName: self.basic.fieldBlockL2Load[fieldName]
+            / self.lc.threadsPerBlock
+            / self.lc.lupsPerThread
+            for (fieldName) in self.basic.fieldBlockL2Load.keys()
+        }
+
+        self.fieldL2LoadV2 = {
+            fieldName: self.fieldL2LoadV1[fieldName]
+            - self.fieldL2LoadOverlap[fieldName]
+            * (exp(-0.0036 * exp(8 * self.L1OverlapOversubscription)))
+            for (fieldName) in self.basic.fieldBlockL2Load.keys()
+        }
+
+        self.L2LoadV1 = self.fieldL2LoadV1["total"]
 
         self.L1LoadEvicts = (
             (self.L1Load - self.L2LoadV1)
             * 0.73
-            * math.exp(-4.6 * math.exp(-0.34 * self.L1coverage))
+            * math.exp(-12 * math.exp(-2.34 * self.L1coverage))
         )
 
-        # Version 2 of L2Load that includes the load evictions
-        self.L2LoadV2 = self.L2LoadV1 + self.L1LoadEvicts
+        # Version 2 of L2Load that includes the load evictions and other TB hits
+        self.L2LoadV2 = self.fieldL2LoadV2["total"] + self.L1LoadEvicts
 
         # Store volume written through to L2 cache
         self.fieldL2Store = {
