@@ -28,7 +28,8 @@ def getCodeString(
                         const int width = {};
                         const int height = {};
                         const bool use_shared = false;
-                        const bool useZero = true;""".format(
+                        //const bool useZero = true;
+    """.format(
         filter_size,
         c_in_per_thread,
         x_per_thread,
@@ -55,7 +56,11 @@ def getCodeString(
 
                 int y = blockIdx.x * blockDim.x * zero + threadIdx.x;
                 int x0 = blockIdx.y * blockDim.y * zero + threadIdx.y;
-                int c_in0 = blockIdx.z * blockDim.z * zero + threadIdx.z;
+                int c_in0 = blockIdx.z * blockDim.z * zero;
+
+                if(blockz != 1) {
+                    c_in0 += threadIdx.z;
+                }
 
 
                 if (x0 * x_per_thread >= width || y >= height ||
@@ -164,8 +169,6 @@ def getConvWarpSpeedKernel(
                     )
                 )
 
-    print(errorLoads)
-
     loadFields.append(
         Field(
             name="errors",
@@ -176,6 +179,8 @@ def getConvWarpSpeedKernel(
             multiplicity=output_channels,
         )
     )
+    for a in errorLoads:
+        print(a)
 
     weightLoads = []
     for ic in range(c_in_per_thread):
@@ -199,6 +204,7 @@ def getConvWarpSpeedKernel(
             dimensions=(3 * 3 * input_channels, 1, 1),
             alignment=0,
             multiplicity=output_channels,
+            scalar=True if blockSize[2] == 1 else False,
         )
     )
 
