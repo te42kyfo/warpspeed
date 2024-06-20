@@ -6,16 +6,25 @@ import sympy as sp
 
 class Field:
     def __init__(
-        self, name, addresses, datatype, dimensions, alignment, multiplicity=1
+        self,
+        name,
+        addresses,
+        datatype,
+        dimensions,
+        alignment,
+        multiplicity=1,
+        scalar=False,
     ):
         self.name = name
         addresses = [[a] if isinstance(a, str) else a for a in addresses]
         self.NDAddresses = [[str(sp.sympify(expr)) for expr in a] for a in addresses]
         # Extend addresses to 3D with "0" as address expressions
         self.NDAddresses = [
-            tuple(list(a) + ["0"] * (3 - len(a)))
-            if not isinstance(a, str)
-            else (a, "0", "0")
+            (
+                tuple(list(a) + ["0"] * (3 - len(a)))
+                if not isinstance(a, str)
+                else (a, "0", "0")
+            )
             for a in self.NDAddresses
         ]
         self.NDAddresses = list(set(self.NDAddresses))
@@ -25,6 +34,7 @@ class Field:
         self.alignment = alignment
 
         self.multiplicity = multiplicity
+        self.scalar = scalar
 
         def linearizeExpr(expr3D):
             exprString = "({5} + {0} + ({1}) * {3} + ({2}) * {4}) * {6}".format(
@@ -66,9 +76,13 @@ def fuseAccesses(fields):
         changed = True
         while changed:
             changed = False
+            accesses.sort(key=lambda a: -a[2])
             for c, o in [
                 (c, o) for c in range(len(accesses)) for o in range(len(accesses))
             ]:
+                if o >= len(accesses):
+                    continue
+
                 diff = accesses[o][0] - accesses[c][0]
                 if (
                     diff == sp.sympify(accesses[c][2])
@@ -86,6 +100,7 @@ def fuseAccesses(fields):
 
 class WarpspeedKernel:
     def fuseAccesses(self):
+        pass
         fuseAccesses(self.loadFields)
         fuseAccesses(self.storeFields)
 

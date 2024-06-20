@@ -235,8 +235,10 @@ def getL1Cycles(block, grid, loadStoreFields, device):
         separatedFields = [
             DummyFieldAccess(a, d, field.multiplicity)
             for a, d in zip(field.linearAddresses, field.datatypes)
+            if not (
+                field.scalar and device.L1Model == "CDNA"
+            )  # scalar loads can go to scalar unit
         ]
-
         warp = getWarp(warpSize, block)
 
         if device.L1Model == "CDNA":
