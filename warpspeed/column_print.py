@@ -16,7 +16,11 @@ def generateColumns(obj, columns, referenceCount="perLup"):
         columnEntries[-1].extend([""] * (tableRows - len(c)))
         for e in c:
             columnEntries[-3].append(e[0].split(".")[-1] + ":")
-            value = eval("obj." + e[0])
+
+            try:
+                value = eval("obj." + e[0])
+            except:
+                value = "-"
 
             if isinstance(value, str):
                 columnEntries[-2].append(value)
@@ -50,11 +54,7 @@ def generateColumns(obj, columns, referenceCount="perLup"):
                 prec = (
                     0
                     if isinstance(value, int)
-                    else 0
-                    if value > 50
-                    else 1
-                    if value > 4
-                    else 2
+                    else 0 if value > 50 else 1 if value > 4 else 2
                 )
                 columnEntries[-2].append(
                     "{value:.{prec}f}".format(value=value, prec=prec)
