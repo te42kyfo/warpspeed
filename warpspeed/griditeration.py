@@ -109,7 +109,8 @@ def countBankConflicts(totalLength, laneAddresses, datatype=8):
     return maxCycles
 
 
-class L1thruVisitorNV:
+class L1thruVisitor:
+
     def __init__(self, device):
         self.cycles = 0
         self.dataPipeCycles = 0
@@ -119,9 +120,9 @@ class L1thruVisitorNV:
         self.device = device
 
     def count(self, laneAddresses, multiplicity=1, datatype=8):
+        # statistics
         if len(set(laneAddresses)) == 1:  # uniform loads
             self.uniform += multiplicity
-
         coalesced = True
         for i in range(len(laneAddresses)):
             if laneAddresses[i] - laneAddresses[0] != i * 4:
@@ -129,51 +130,34 @@ class L1thruVisitorNV:
         if coalesced:
             self.coalesced += multiplicity
 
-        dataPipeCycles = countBankConflicts(128, laneAddresses, datatype)
-
-        tagCycles = int(
-            math.ceil((max(1, np.unique(laneAddresses // 128).size) + 2) / 4)
-        )
-
-        # addresses = list(
-        #    set([l // (self.device.CLAllocationSize) for l in laneAddresses])
-        # )
-        # tagCycles = countBankConflicts(5, addresses, 1)
-        # tagCycles = countBankConflicts(4, addresses, 1)
-
-        self.dataPipeCycles += dataPipeCycles * multiplicity
-        self.tagCycles += tagCycles * multiplicity
-        self.cycles += (
-            max(
-                dataPipeCycles,
-                tagCycles,
-                self.device.subWarpSize / self.device.lsuCount,
-            )
-            * multiplicity
-        )
-
-
-class L1thruVisitorCDNA:
-    def __init__(self, device):
-        self.dataPipeCycles = 0
-        self.tagCycles = 0
-        self.uniform = 0
-        self.coalesced = 0
-        self.cycles = 0
-        self.device = device
-
-    def count(self, laneAddresses, multiplicity=1, datatype=8):
-        addresses = list(
-            set([l // (self.device.CLAllocationSize) for l in laneAddresses])
-        )
-        tagCycles = countBankConflicts(2, addresses, 1)
         dataPipeCycles = countBankConflicts(
             self.device.CLAllocationSize, laneAddresses, datatype
         )
-        cycles = max(4 if datatype != 4 else 1, tagCycles, dataPipeCycles)
+
+        laneCLs = np.unique(laneAddresses // self.device.CLAllocationSize)
+        if self.device.L1Model == "CDNA":
+            tagCycles = countBankConflicts(2, laneCLs, 1)
+        elif self.device.L1Model == "NV":
+            tagCycles = int(math.ceil((max(1, laneCLs.size) + 2) / 4))
+        else:
+            tagCycles = 0
+            print("unknown L1 cache model")
 
         self.tagCycles += tagCycles * multiplicity
         self.dataPipeCycles += dataPipeCycles * multiplicity
+
+        if self.device.L1Model == "CDNA":
+            cycles = max(4 if datatype != 4 else 1, tagCycles, dataPipeCycles)
+        elif self.device.L1Model == "NV":
+            cycles = max(
+                self.device.subWarpSize / self.device.lsuCount,
+                tagCycles,
+                dataPipeCycles,
+            )
+        else:
+            cycles = 0
+            print("unknown L1 cache model")
+
         self.cycles += cycles * multiplicity
 
 
@@ -241,10 +225,7 @@ def getL1Cycles(block, grid, loadStoreFields, device):
         ]
         warp = getWarp(warpSize, block)
 
-        if device.L1Model == "CDNA":
-            visitor = L1thruVisitorCDNA(device)
-        else:
-            visitor = L1thruVisitorNV(device)
+        visitor = L1thruVisitor(device)
 
         outerSize = [min(64, block[i] * grid[i]) // warp[i] for i in [0, 1, 2]]
         outerSize[0] = max(16 // block[0], outerSize[0])
