@@ -8,6 +8,7 @@ import json
 import sqlite3
 from predict_metrics import *
 from measured_metrics import MeasuredMetrics, ResultComparer
+from datetime import datetime
 
 
 class MeasDB:
@@ -70,6 +71,7 @@ class MeasDB:
                 "basic_metrics": "'" + json.dumps(basic.__dict__) + "'",
                 "measured_metrics": "'" + json.dumps(meas.__dict__) + "'",
                 "launch_config": "'" + json.dumps(lc.__dict__) + "'",
+                "date": int(datetime.now().timestamp()),
             },
         )
 
@@ -83,22 +85,6 @@ class MeasDB:
         query += "(" + ", ".join([str(v) for k, v in (keys | data).items()]) + ")"
 
         self.conn.execute(query)
-
-    def getBasicMetricsRange(self, stencilRange, device):
-        query = (
-            "SELECT * FROM measurements WHERE " 'range={} AND device="{}" '
-        ).format(stencilRange, device.name)
-        c = self.conn.cursor()
-        c.execute(query)
-
-        return [
-            (
-                LaunchConfig.fromDict(json.loads(row["launch_config"])),
-                BasicMetrics.fromDict(json.loads(row["basic_metrics"])),
-                MeasuredMetrics.fromDict(json.loads(row["measured_metrics"])),
-            )
-            for row in c.fetchall()
-        ]
 
     def getEntry(self, stencilRange, block, threadFolding, fieldSize, datatype, device):
         return self.getEntryKeys(
@@ -126,18 +112,45 @@ class MeasDB:
         c.execute(query)
         row = c.fetchone()
         if row is None:
-            return None, None, None
+            return None, None, None, None
 
         secondResult = c.fetchone()
         if secondResult is not None:
             print("Duplicate Result!")
-            return None, None, None
+            return None, None, None, None
 
         return (
+            datetime.fromtimestamp(row["date"]) if not row["date"] is None else None,
             LaunchConfig.fromDict(json.loads(row["launch_config"])),
             BasicMetrics.fromDict(json.loads(row["basic_metrics"])),
             MeasuredMetrics.fromDict(json.loads(row["measured_metrics"])),
         )
+
+    def getRangeKeys(self, keys, keyFormat):
+        query = "SELECT * FROM measurements WHERE "
+        query += " AND ".join(["{}={}".format(key, keys[key]) for key in keys])
+
+        c = self.conn.cursor()
+
+        c.execute(query)
+
+        results = []
+        for row in c:
+            key = tuple(row[key] for key in keyFormat)
+            results.append(
+                (
+                    key,
+                    (
+                        datetime.fromtimestamp(row["date"])
+                        if not row["date"] is None
+                        else None
+                    ),
+                    LaunchConfig.fromDict(json.loads(row["launch_config"])),
+                    BasicMetrics.fromDict(json.loads(row["basic_metrics"])),
+                    MeasuredMetrics.fromDict(json.loads(row["measured_metrics"])),
+                )
+            )
+        return results
 
     def commit(self):
         self.conn.commit()
