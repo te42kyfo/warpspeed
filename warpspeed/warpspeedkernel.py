@@ -100,7 +100,6 @@ def fuseAccesses(fields):
 
 class WarpspeedKernel:
     def fuseAccesses(self):
-        pass
         fuseAccesses(self.loadFields)
         fuseAccesses(self.storeFields)
 
