@@ -18,15 +18,6 @@ def perLup(obj, metric):
     return getattr(obj, metric)
 
 
-def selectDevice(name):
-    if "V100" in name:
-        return DeviceVolta()
-    if "A100" in name:
-        return DeviceAmpere()
-    if "2080" in name:
-        return Device2080Ti()
-
-
 class LaunchConfig:
     def compute(
         kernel,
@@ -97,9 +88,9 @@ class BasicMetrics:
             device,
         )
 
-        self.L1DataPipeCycles, self.L1TagCycles, self.L1Cycles = self.fieldL1Cycles[
-            "total"
-        ]
+        self.L1DataPipeCycles, self.L1TagCycles, self.L1Cycles, self.L1CLCount = (
+            self.fieldL1Cycles["total"]
+        )
 
         # linearLoadAddresses = [ l.linearAddresses for l in kernel.loadFields  ]
         # linearStoreAddresses = [ l.linearAddresses for l in kernel.storeFields  ]
@@ -236,6 +227,15 @@ class BasicMetrics:
 
 
 class DerivedMetrics:
+
+    def rover(a, b, c, coverage):
+        return a * np.exp(-b * np.exp(-c * coverage))
+
+    popt_L1rover = (0.73, 12, 2.34)
+
+    def L1rover(L1coverage):
+        return DerivedMetrics.rover(*DerivedMetrics.popt_L1rover, L1coverage)
+
     def __init__(self, lc, basic, device, meas=None):
         self.lc = lc
         self.basic = basic
@@ -302,10 +302,8 @@ class DerivedMetrics:
 
         self.L2LoadV1 = self.fieldL2LoadV1["total"]
 
-        self.L1LoadEvicts = (
-            (self.L1Load - self.L2LoadV1)
-            * 0.73
-            * math.exp(-12 * math.exp(-2.34 * self.L1coverage))
+        self.L1LoadEvicts = (self.L1Load - self.L2LoadV1) * DerivedMetrics.L1rover(
+            self.L1coverage
         )
 
         # Version 2 of L2Load that includes the load evictions and other TB hits
