@@ -19,113 +19,96 @@ def getCodeString(
     x_per_thread,
     block_size,
 ):
-    codeString = """const int filter_size = {};
-                        const int c_in_per_thread = {};
-                        const int x_per_thread = {};
-                        const int input_channels = {};
-                        const int output_channels = {};
-                        const int blockz = {};
-                        const int width = {};
-                        const int height = {};
-                        const bool use_shared = false;
-                        //const bool useZero = true;
+    codeString = """
+const int filter_size = {};
+const int c_in_per_thread = {};
+const int x_per_thread = {};
+const int input_channels = {};
+const int output_channels = {};
+const int blockx = {};
+const int blocky = {};
+const int blockz = {};
+const int width = {};
+const int height = {};
+//const bool useZero = true;
     """.format(
         filter_size,
         c_in_per_thread,
         x_per_thread,
         input_channels,
         output_channels,
-        block_size[2],
+        *block_size,
         height,
         width,  # width and height are swapped!
     )
     codeString += """
-                extern "C" __global__ void __launch_bounds__(256)
-                kernel(float* error, float* next_error,
-                                        float* weights) {
+extern "C" __global__ void __launch_bounds__(256)
+kernel(float* error, float* next_error,
+                        float* weights) {
+    int zero = 1;
 
-                int zero = 1;
-                //if(useZero) {
-                //if (next_error[23] == (float) 23.14)
-                //        zero = 12;
-                //    else
-                //        zero = 0;
-                //}
+    int y = blockIdx.x * blockx * zero + threadIdx.x;
+    int x0 = blockIdx.y * blocky * zero + threadIdx.y;
+    int c_in0 = blockIdx.z * blockz * zero;
 
-                float __shared__ shmWeights[c_in_per_thread * blockz][output_channels][filter_size][filter_size];
-
-                int y = blockIdx.x * blockDim.x * zero + threadIdx.x;
-                int x0 = blockIdx.y * blockDim.y * zero + threadIdx.y;
-                int c_in0 = blockIdx.z * blockDim.z * zero;
-
-                if(blockz != 1) {
-                    c_in0 += threadIdx.z;
-                }
+    if(blockz > 1) {
+        c_in0 += threadIdx.z;
+        if (blockx*blocky >= 64) {
+            #ifdef __HIPCC__
+                asm("v_readfirstlane_b32 %0, %1" : "=s"(c_in0) : "v"(c_in0));
+            #endif
+        }
+    }
 
 
-                if (x0 * x_per_thread >= width || y >= height ||
-                    c_in0 * c_in_per_thread >= input_channels)
-                return;
+    if (x0 * x_per_thread >= width || y >= height || c_in0 * c_in_per_thread >= input_channels)
+        return;
 
-                float val[c_in_per_thread][x_per_thread];
-                for (int c = 0; c < c_in_per_thread; c++)
-                for (int ix = 0; ix < x_per_thread; ix++)
-                    val[c][ix] = 0.0f;
+    float val[c_in_per_thread][x_per_thread];
+    for (int c = 0; c < c_in_per_thread; c++) {
+        for (int ix = 0; ix < x_per_thread; ix++) {
+            val[c][ix] = 0.0f;
+        }
+    }
 
-                if(use_shared) {
-                    int linearThreadIdx = threadIdx.y * blockDim.x + threadIdx.x;
-                    int linearBlockDim = blockDim.x*blockDim.y;
-                    for(int c_out = linearThreadIdx; c_out < output_channels; c_out += linearBlockDim) {
-                        for(int c = 0; c < c_in_per_thread; c++) {
-                            int c_in = c_in0 * c_in_per_thread + c;
-                            for(int i = 0; i < filter_size; i++) {
-                            for(int j = 0; j < filter_size; j++) {
-                                shmWeights[c][c_out][i][j] =
-                                weights[(blockIdx.z * c_in_per_thread* blockz + c_out) * input_channels * filter_size * filter_size +
-                                        c_in * filter_size * filter_size +
-                                        (filter_size - i - 1) * filter_size + filter_size - j - 1];
-                            }
-                            }
-                        }
-                    }
-                __syncthreads();
-                }
 
-                for (int c_out = 0; c_out < output_channels; c_out++) {
-#pragma unroll
-                for (int c = 0; c < c_in_per_thread; c++) {
-                    int c_in = c_in0 * c_in_per_thread + c;
-#pragma unroll
-                    for (int i = 0; i < filter_size; i++) {
-#pragma unroll
-                    for (int j = 0; j < filter_size; j++) {
-                        float w;
-                        if (use_shared)
-                            w = shmWeights[threadIdx.z*c_in_per_thread + c][c_out][i][j];
-                         else
-                            w = weights[zero * c_out * input_channels * filter_size * filter_size +
-                                    c_in * filter_size * filter_size + i * filter_size + j];
+    for (int c_out = 0; c_out < output_channels; c_out++) {
+
+        #pragma unroll
+        for (int c = 0; c < c_in_per_thread; c++) {
+            int c_in = c_in0 * c_in_per_thread + c;
+
+            #pragma unroll
+            for (int i = 0; i < filter_size; i++) {
+
                 #pragma unroll
-                        for (int ix = 0; ix < x_per_thread; ix++) {
+                for (int j = 0; j < filter_size; j++) {
+                    float w = weights[zero * c_out * input_channels * filter_size * filter_size +
+                                (c_in+0) * filter_size * filter_size + i * filter_size + j];
+
+                #pragma unroll
+                    for (int ix = 0; ix < x_per_thread; ix++) {
                         int x = x0 * x_per_thread + ix;
                         float error_val = error[zero * c_out * (width+2) * (height+2) +
-                                               (x + i) * (height+2) + y + j];
-                        val[c][ix] += error_val * w;
-                        }
+                                                (x + i) * (height+2) + y + j];
+                        val[c][ix] = val[c][ix] + error_val * w;
+
                     }
-                    }
                 }
-                }
-                for (int c = 0; c < c_in_per_thread; c++) {
-                for (int ix = 0; ix < x_per_thread; ix++) {
-                    int x = x0 * x_per_thread + ix;
-                    int c_in = c_in0 * c_in_per_thread + c;
-//if(val[c][ix] == 123)
-                next_error[c_in * (width+2) * (height + 2) +
-                           x * (height+2) + y] = val[c][ix];
-                }
-                }
-                }
+            }
+        }
+    }
+    for (int c = 0; c < c_in_per_thread; c++) {
+        for (int ix = 0; ix < x_per_thread; ix++) {
+            int x = x0 * x_per_thread + ix;
+            int c_in = c_in0 * c_in_per_thread + c;
+
+            next_error[(c_in+0) * (width+2) * (height + 2) + x * (height+2) + y] = val[c][ix];
+
+            }
+    }
+
+}
                     """
 
     domain = [
@@ -179,8 +162,8 @@ def getConvWarpSpeedKernel(
             multiplicity=output_channels,
         )
     )
-    for a in errorLoads:
-        print(a)
+    # for a in errorLoads:
+    #    print(a)
 
     weightLoads = []
     for ic in range(c_in_per_thread):
@@ -204,7 +187,7 @@ def getConvWarpSpeedKernel(
             dimensions=(3 * 3 * input_channels, 1, 1),
             alignment=0,
             multiplicity=output_channels,
-            scalar=True if blockSize[2] == 1 else False,
+            scalar=True if blockSize[1] * blockSize[0] >= 64 else False,
         )
     )
 
