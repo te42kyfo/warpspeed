@@ -3,8 +3,9 @@
 import sys
 
 sys.path.append("..")
+sys.path.append("../stencil_runner")
 
-from stencil_runner.stencil_runner import *
+from stencil_runner import *
 from column_print import *
 from devices import *
 
@@ -37,7 +38,7 @@ class MeasuredMetrics:
             lc.alignmentBytes,
         )
 
-        if lc.API == "HIP" and lc.device == "RX6900XT":
+        if lc.API == "HIP" and lc.device == "AMD Radeon RX 6900 XT":
             (
                 self.valuInsts,
                 self.saluInsts,
@@ -98,7 +99,7 @@ class MeasuredMetrics:
                     "WRITE_SIZE",
                     "VALUInsts",
                     "SALUInsts",
-                    "FlatVMemInsts",
+                    "VFetchInsts",
                     "SFetchInsts",
                 ],
                 codeText,
@@ -220,19 +221,21 @@ class MeasuredMetrics:
     def __str__(self):
         columns = [
             [
+                ("L1CyclesActive", ""),
                 ("valuInsts", ""),
                 ("saluInsts", ""),
                 ("vfetchInsts", ""),
                 ("sfetchInsts", ""),
             ],
             [
-                ("L1Wavefronts", ""),
+                ("L1TagWavefronts", ""),
                 ("L2Load_tex", "B"),
                 ("L2Store", "B"),
                 ("memLoad", "B"),
                 ("memStore", "B"),
             ],
             [
+                ("L1DataPipeWavefronts", ""),
                 ("power", "W"),
                 ("clock", "MHz"),
                 ("lups", "Lup/s"),

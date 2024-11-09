@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
-//#include <FileOp.h>
+// #include <FileOp.h>
 
 #define NVPW_API_CALL(apiFuncCall)                                             \
   do {                                                                         \
@@ -193,10 +193,10 @@ bool runTestEnd() {
 
 bool static measureMetrics_initialized = false;
 
-double measureMetricsStart(std::vector<const char*> newMetricNames) {
+double measureMetricsStart(std::vector<const char *> newMetricNames) {
 
   std::vector<std::string> metricNameVector;
-  for( const auto metricName : newMetricNames )
+  for (const auto metricName : newMetricNames)
     metricNameVector.push_back(std::string(metricName));
 
   if (!measureMetrics_initialized) {
@@ -288,11 +288,11 @@ double measureMetricsStart(std::vector<const char*> newMetricNames) {
 
 extern "C" void measureBandwidthStart() {
   measureMetricsStart({"dram__bytes_read.sum", "dram__bytes_write.sum",
-                      "lts__t_sectors_op_read.sum",
-                      "lts__t_sectors_op_write.sum"});
+                       "lts__t_sectors_op_read.sum",
+                       "lts__t_sectors_op_write.sum"});
 }
 
-extern "C" double measureMetricStopPrint() {
+extern "C" double measureMetricsStopPrint() {
 
   runTestEnd();
 
@@ -305,7 +305,7 @@ extern "C" double measureMetricStopPrint() {
   return 0.0;
 }
 
-std::vector<double> measureMetricStop() {
+std::vector<double> measureMetricsStop() {
 
   runTestEnd();
 
@@ -317,4 +317,4 @@ std::vector<double> measureMetricStop() {
                                                    metricNames);
   return results;
 }
-void initMeasureMetric(){};
+void initMeasureMetric() {};

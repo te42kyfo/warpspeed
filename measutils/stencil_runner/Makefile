@@ -3,7 +3,7 @@
 
 HIP_HOME :=  /opt/rocm
 
-LDFLAGS  :=  -lnvrtc -L$(CUDA_HOME)/lib64 -lcuda -lcudart -L$(CUDA_HOME)/extras/CUPTI/lib64 -lcupti  -lnvidia-ml -lnvperf_host -lnvperf_target $(shell python3-config --ldflags)
+LDFLAGS  :=  -L. -lnvrtc -L$(CUDA_HOME)/lib64 -lcuda -lcudart -L$(CUDA_HOME)/extras/CUPTI/lib64 -lcupti -lnvidia-ml -lnvperf_host -lnvperf_target $(shell python3-config --ldflags)
 CUDAFLAGS  :=  -O3 -I$(CUDA_HOME)/include -std=c++2a $(shell python3-config --includes) -I$(CUDA_HOME)/extras/CUPTI/include -Wl,-rpath,$(CUDA_HOME)/extras/CUPTI/lib64/
 
 HOSTNAME = $(shell hostname)

@@ -41,67 +41,41 @@ pyTimeNBufferKernel(PyObject *kernelText, PyObject *funcName,
 
   void **bufferPointersPointers = getBufferPointers(buffers, alignmentBytes);
 
+  // std::cout << (char *)PyUnicode_1BYTE_DATA(kernelText) << "\n";
+  // std::cout << (char *)PyUnicode_1BYTE_DATA(funcName) << "\n";
+
   auto kernel = buildKernel((char *)PyUnicode_1BYTE_DATA(kernelText),
                             (char *)PyUnicode_1BYTE_DATA(funcName));
 
+  cudaEvent_t start, stop;
+  GPU_ERROR(cudaEventCreate(&start));
+  GPU_ERROR(cudaEventCreate(&stop));
+
   MeasurementSeries times;
+  float totalMilliseconds = 0;
 
-  double minRunTime = 0.1;
+  while (totalMilliseconds < 1000) {
+    GPU_ERROR(cudaEventRecord(start));
+    checkCuErrors(cuLaunchKernel(kernel,
+                                 PyLong_AsLong(PyTuple_GetItem(blockCount, 0)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockCount, 1)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockCount, 2)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockSize, 0)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockSize, 1)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockSize, 2)),
+                                 0, NULL, (void **)bufferPointersPointers, 0));
 
-  checkCuErrors(cuLaunchKernel(kernel,
-                               PyLong_AsLong(PyTuple_GetItem(blockCount, 0)),
-                               PyLong_AsLong(PyTuple_GetItem(blockCount, 1)),
-                               PyLong_AsLong(PyTuple_GetItem(blockCount, 2)),
-                               PyLong_AsLong(PyTuple_GetItem(blockSize, 0)),
-                               PyLong_AsLong(PyTuple_GetItem(blockSize, 1)),
-                               PyLong_AsLong(PyTuple_GetItem(blockSize, 2)), 0,
-                               NULL, (void **)bufferPointersPointers, 0));
-
-  int iterations = 1;
-  double dt = 0;
-
-  while (dt < minRunTime) {
-    iterations *= 2;
-    GPU_ERROR(cudaDeviceSynchronize());
-    double t1 = dtime();
-    for (int i = 0; i < iterations; i++) {
-      checkCuErrors(
-          cuLaunchKernel(kernel, PyLong_AsLong(PyTuple_GetItem(blockCount, 0)),
-                         PyLong_AsLong(PyTuple_GetItem(blockCount, 1)),
-                         PyLong_AsLong(PyTuple_GetItem(blockCount, 2)),
-                         PyLong_AsLong(PyTuple_GetItem(blockSize, 0)),
-                         PyLong_AsLong(PyTuple_GetItem(blockSize, 1)),
-                         PyLong_AsLong(PyTuple_GetItem(blockSize, 2)), 0, NULL,
-                         (void **)bufferPointersPointers, 0));
-    }
-    GPU_ERROR(cudaDeviceSynchronize());
-    double t2 = dtime();
-    dt = t2 - t1;
-    std::cout << iterations << " " << dt << "\n";
+    GPU_ERROR(cudaEventRecord(stop));
+    GPU_ERROR(cudaEventSynchronize(stop));
+    float milliseconds = 0;
+    GPU_ERROR(cudaEventElapsedTime(&milliseconds, start, stop));
+    times.add(milliseconds / 1000);
+    totalMilliseconds += milliseconds;
   }
 
-  for (int n = 0; n < 3; n++) {
-    GPU_ERROR(cudaDeviceSynchronize());
-    double t1 = dtime();
-    for (int i = 0; i < iterations; i++) {
-      checkCuErrors(
-          cuLaunchKernel(kernel, PyLong_AsLong(PyTuple_GetItem(blockCount, 0)),
-                         PyLong_AsLong(PyTuple_GetItem(blockCount, 1)),
-                         PyLong_AsLong(PyTuple_GetItem(blockCount, 2)),
-                         PyLong_AsLong(PyTuple_GetItem(blockSize, 0)),
-                         PyLong_AsLong(PyTuple_GetItem(blockSize, 1)),
-                         PyLong_AsLong(PyTuple_GetItem(blockSize, 2)), 0, NULL,
-                         (void **)bufferPointersPointers, 0));
-    }
-    GPU_ERROR(cudaDeviceSynchronize());
-    double t2 = dtime();
-    times.add((t2 - t1) / iterations);
-    std::cout << (t2 - t1) / iterations << "\n";
-  }
-
-  GPU_ERROR(cudaDeviceSynchronize());
-  double start = dtime();
-  for (size_t iter = 0; iter < iterations; iter++) {
+  // power/clock measurement loop running at least twice / or for 2 seconds
+  GPU_ERROR(cudaEventRecord(start));
+  for (int iter = 0; iter < (int)max(2.0, 2.0 / times.minValue()); iter++) {
     checkCuErrors(cuLaunchKernel(kernel,
                                  PyLong_AsLong(PyTuple_GetItem(blockCount, 0)),
                                  PyLong_AsLong(PyTuple_GetItem(blockCount, 1)),
@@ -111,22 +85,24 @@ pyTimeNBufferKernel(PyObject *kernelText, PyObject *funcName,
                                  PyLong_AsLong(PyTuple_GetItem(blockSize, 2)),
                                  0, NULL, (void **)bufferPointersPointers, 0));
   }
+  GPU_ERROR(cudaEventRecord(stop));
+
   MeasurementSeries powerSeries;
   MeasurementSeries clockSeries;
 
   int deviceId = 0;
-
-  for (int i = 0; i < 11; i++) {
-    usleep(minRunTime * 1e6 / 20);
+  GPU_ERROR(cudaGetDevice(&deviceId));
+  do {
+    usleep(1000);
     auto stats = getGPUStats(deviceId);
     powerSeries.add(stats.power);
     clockSeries.add(stats.clock);
-  }
+  } while (cudaEventQuery(stop) == cudaErrorNotReady);
 
-  GPU_ERROR(cudaDeviceSynchronize());
-
-  std::cout << powerSeries.median() << "\n";
-  std::cout << clockSeries.median() << "\n";
+  std::cout << times.count() << " " << times.median() * 1000 << " ms\n";
+  std::cout << powerSeries.count() << " " << powerSeries.median() / 1000
+            << " W\n";
+  std::cout << clockSeries.count() << " " << clockSeries.median() << " Mhz\n";
 
   free(bufferPointersPointers[0]);
   free(bufferPointersPointers);
@@ -148,7 +124,6 @@ pyMeasureMetricsNBufferKernel(PyObject *metricNames, PyObject *kernelText,
                               PyObject *funcName, PyObject *blockSize,
                               PyObject *blockCount, PyObject *buffers,
                               PyObject *alignmentBytes) {
-
   std::vector<const char *> metricNameVector;
 
   for (int i = 0; i < PyList_Size(metricNames); i++) {
@@ -170,9 +145,9 @@ pyMeasureMetricsNBufferKernel(PyObject *metricNames, PyObject *kernelText,
                                PyLong_AsLong(PyTuple_GetItem(blockSize, 1)),
                                PyLong_AsLong(PyTuple_GetItem(blockSize, 2)), 0,
                                NULL, (void **)bufferPointersPointers, 0));
-  auto values = measureMetricStop();
+  auto values = measureMetricsStop();
 
-  std::cout << values.size();
+  // std::cout << values.size();
 
   PyGILState_STATE gstate = PyGILState_Ensure();
 
@@ -185,3 +160,22 @@ pyMeasureMetricsNBufferKernel(PyObject *metricNames, PyObject *kernelText,
 
   return result;
 }
+
+extern "C" PyObject *pyGetDeviceName(PyObject *deviceNumber) {
+
+  PyGILState_STATE gstate = PyGILState_Ensure();
+  int deviceId = PyLong_AsLong(deviceNumber);
+  // GPU_ERROR(cudaSetDevice(deviceId));
+
+  cudaDeviceProp prop;
+  GPU_ERROR(cudaGetDeviceProperties(&prop, deviceId));
+  std::string deviceName = prop.name;
+
+  PyObject *result = PyUnicode_FromString(deviceName.c_str());
+
+  PyGILState_Release(gstate);
+
+  return result;
+}
+
+extern "C" void pyMeasureMetricInit() { initMeasureMetric(); }

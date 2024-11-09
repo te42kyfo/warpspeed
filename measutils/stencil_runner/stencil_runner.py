@@ -1,30 +1,54 @@
 #!/usr/bin/env python3
 
 import os
+import os.path
 from ctypes import *
 import socket
 
 filename = None
 my_functions = None
+detectedAPI = None
 
 
 def loadDLLs(API):
+
     global my_functions
+    global detectedAPI
+
     if my_functions is None:
         dirname = os.path.dirname(os.path.abspath(__file__))
         if len(dirname) == 0:
             dirname = "."
-        if API == "HIP":
-            filename = os.path.join(
-                dirname, "hip_stencil_runner." + socket.gethostname() + ".so"
+
+        HIPFilename = os.path.join(
+            dirname, "hip_stencil_runner." + socket.gethostname() + ".so"
+        )
+        if os.path.isfile(HIPFilename):
+            detectedAPI = "HIP"
+            filename = HIPFilename
+
+        CUDAFilename = os.path.join(
+            dirname, "cuda_stencil_runner." + socket.gethostname() + ".so"
+        )
+        if os.path.isfile(CUDAFilename):
+            detectedAPI = "CUDA"
+            filename = CUDAFilename
+
+        if detectedAPI == None:
+            print(
+                "ERROR, neither ",
+                HIPFilename,
+                " nor ",
+                CUDAFilename + " could be found",
             )
-        elif API == "CUDA":
-            filename = os.path.join(
-                dirname, "cuda_stencil_runner." + socket.gethostname() + ".so"
-            )
+            return
+
+        if API != None and detectedAPI != API:
+            print("ERROR, expected ", API, " found ", detectedAPI)
+            return
 
         my_functions = CDLL(filename, mode=RTLD_GLOBAL)
-        my_functions.pyMeasureMetricsNBufferKernel.restype = py_object
+
         my_functions.pyMeasureMetricsNBufferKernel.argtypes = [
             py_object,
             py_object,
@@ -34,6 +58,7 @@ def loadDLLs(API):
             py_object,
             py_object,
         ]
+        my_functions.pyMeasureMetricsNBufferKernel.restype = py_object
 
         my_functions.pyTimeNBufferKernel.argtypes = [
             py_object,
@@ -43,14 +68,21 @@ def loadDLLs(API):
             py_object,
             py_object,
         ]
-
         my_functions.pyTimeNBufferKernel.restype = py_object
+
+        my_functions.pyGetDeviceName.argtypes = [
+            py_object,
+        ]
+        my_functions.pyGetDeviceName.restype = py_object
+
+        my_functions.pyMeasureMetricInit()
 
 
 def timeNBufferKernel(
     API, codeString, funcName, blockSize, gridSize, buffers, alignmentBytes
 ):
     loadDLLs(API)
+
     return my_functions.pyTimeNBufferKernel(
         codeString, funcName, blockSize, gridSize, buffers, alignmentBytes
     )
@@ -76,6 +108,16 @@ def measureMetricsNBufferKernel(
         buffers,
         alignmentBytes,
     )
+
+
+def getAPI():
+    loadDLLs(None)
+    return detectedAPI
+
+
+def getDeviceName(deviceId):
+    loadDLLs(None)
+    return my_functions.pyGetDeviceName(deviceId)
 
 
 if __name__ == "__main__":

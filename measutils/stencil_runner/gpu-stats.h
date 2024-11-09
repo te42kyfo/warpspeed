@@ -48,10 +48,12 @@ GPU_stats getGPUStats(int deviceId) {
   int64_t temperature = 0;
   ret = rsmi_dev_temp_metric_get(deviceId, RSMI_TEMP_TYPE_EDGE,
                                  RSMI_TEMP_CURRENT, &temperature);
-  ret = rsmi_dev_power_ave_get(deviceId, 0, &power);
+  rsmi_gpu_metrics_t pgpu_metrics;
+  ret = rsmi_dev_gpu_metrics_info_get(deviceId, &pgpu_metrics);
+
   ret = rsmi_dev_gpu_clk_freq_get(deviceId, RSMI_CLK_TYPE_SYS, &clockStruct);
 
-  power /= 1000;
+  power = pgpu_metrics.current_socket_power * 1000;
   temperature /= 1000;
   currentClock = clockStruct.frequency[clockStruct.current] / 1e6;
 

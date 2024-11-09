@@ -27,15 +27,6 @@ inline void gpuAssert(hipError_t code, const char *file, int line,
 }
 #define GPU_ERROR(ans)                                                         \
   { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(hipError_t code, const char *file, int line,
-                      bool abort = true) {
-  if (code != hipSuccess) {
-    std::cerr << "GPUassert: \"" << hipGetErrorString(code) << "\"  in " << file
-              << ": " << line << "\n";
-    if (abort)
-      exit(code);
-  }
-}
 
 #else
 
@@ -80,9 +71,7 @@ bool initialized = false;
 
 void init(size_t newBufferSizeBytes) {
   bufferSizeBytes += 1024;
-  setenv("HSA_TOOLS_LIB", "/opt/rocm/rocprofiler/lib/librocprofiler64.so", 1);
-  setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 1);
-  setenv("ROCP_HSA_INTERCEPT", "1", 1);
+
   if (!initialized) {
     checkCuErrors(cuInit(0));
     CUdevice cuDevice;
