@@ -98,7 +98,7 @@ class OverlapVisitor:
 
 
 def countBankConflicts(totalLength, laneAddresses, datatype=8):
-    addresses = list(set([l // datatype for l in laneAddresses]))
+    addresses = np.unique(laneAddresses // datatype)
 
     banks = [0] * (totalLength // datatype)
     maxCycles = 0
@@ -118,6 +118,7 @@ class L1thruVisitor:
         self.uniform = 0
         self.coalesced = 0
         self.device = device
+        self.CLCount = 0
 
     def count(self, laneAddresses, multiplicity=1, datatype=8):
         # statistics
@@ -135,6 +136,8 @@ class L1thruVisitor:
         )
 
         laneCLs = np.unique(laneAddresses // self.device.CLAllocationSize)
+        self.CLCount += laneCLs.size * multiplicity
+
         if self.device.L1Model == "CDNA":
             tagCycles = countBankConflicts(2, laneCLs, 1)
         elif self.device.L1Model == "NV":
@@ -171,9 +174,9 @@ class DummyFieldAccess:
 def gridIteration(
     fields, innerSize, outerSize, visitor, startBlock=(0, 0, 0), granularity4B=False
 ):
-    idx = np.arange(0, innerSize[0], dtype=np.int32)
-    idy = np.arange(0, innerSize[1], dtype=np.int32)
-    idz = np.arange(0, innerSize[2], dtype=np.int32)
+    idx = np.arange(0, innerSize[0], dtype=np.int64)
+    idy = np.arange(0, innerSize[1], dtype=np.int64)
+    idz = np.arange(0, innerSize[2], dtype=np.int64)
     x, y, z = np.meshgrid(idx, idy, idz)
 
     for field in fields:
@@ -210,11 +213,12 @@ def getL1Cycles(block, grid, loadStoreFields, device):
 
     fieldL1Metrics = {}
 
-    L1Components = namedtuple("L1Components", "dataPipeCycles tagCycles total")
+    L1Components = namedtuple("L1Components", "dataPipeCycles tagCycles total CLCount")
 
     dataPipeCycles = 0
     tagCycles = 0
     totalCycles = 0
+    totalCLCount = 0
     for field in loadStoreFields:
         separatedFields = [
             DummyFieldAccess(a, d, field.multiplicity)
@@ -249,17 +253,22 @@ def getL1Cycles(block, grid, loadStoreFields, device):
             visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2] / warpSize
         )
 
+        fieldCLCount = (
+            visitor.CLCount / outerSize[0] / outerSize[1] / outerSize[2] / warpSize
+        )
+
         fieldL1Metrics[field.name] = L1Components(
-            fieldDataPipeCycles,
-            fieldTagCycles,
-            fieldCycles,
+            fieldDataPipeCycles, fieldTagCycles, fieldCycles, fieldCLCount
         )
 
         dataPipeCycles += fieldDataPipeCycles
         tagCycles += fieldTagCycles
         totalCycles += fieldCycles
+        totalCLCount += fieldCLCount
 
-    fieldL1Metrics["total"] = L1Components(dataPipeCycles, tagCycles, totalCycles)
+    fieldL1Metrics["total"] = L1Components(
+        dataPipeCycles, tagCycles, totalCycles, fieldCLCount
+    )
     return fieldL1Metrics
 
 
@@ -290,10 +299,7 @@ def getL2LoadBlockVolume(block, grid, loadAddresses, fetchSize):
 
     totalVolume = 0
     for field in loadAddresses:
-        if fetchSize == 32:
-            visitor = CL32Visitor()
-        elif fetchSize == 64:
-            visitor = CL64Visitor()
+        visitor = CLVisitor(fetchSize)
 
         gridIteration([field], block, grid, visitor)
         totalVolume += visitor.CLs * fetchSize / grid[0] / grid[1] / grid[2]
