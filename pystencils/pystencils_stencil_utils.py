@@ -30,8 +30,6 @@ def orderLoads(assignments):
             ps.Assignment(a.lhs, a.rhs.subs(zip(loads.keys(), loads.values())))
         )
 
-    # for a in new_assignments:
-    #    print(a)
     return new_assignments
 
 
@@ -129,28 +127,37 @@ def getStencilKernel(
 ):
     domainSize = [s - 2 * stencil_range for s in fieldSize]
 
+    ghost_layers = stencil_range
+
+    if datatype == "double":
+        np_datatype = "float64"
+        byte_offset = ghost_layers * 8
+    else:
+        byte_offset = ghost_layers * 4
+        np_datatype = "float32"
+
     dst_field = ps.fields(
-        "dst : " + datatype + "[{}, {}, {}]".format(*fieldSize),
+        "dst : " + np_datatype + "[{}, {}, {}]".format(*fieldSize),
         layout="reverse_numpy",
     )
     src_field = ps.fields(
-        "src : " + datatype + "[{}, {}, {}]".format(*fieldSize), layout="reverse_numpy"
+        "src : " + np_datatype + "[{}, {}, {}]".format(*fieldSize),
+        layout="reverse_numpy",
     )
-    ghost_layers = stencil_range
-    if datatype == "float32":
-        byte_offset = ghost_layers * 4
-    else:
-        byte_offset = ghost_layers * 8
 
     dst_field.byte_offset = byte_offset
     src_field.byte_offset = byte_offset
 
     ast = ps.create_kernel(
-        getStarAssignments(src_field, dst_field, stencil_range, blocking_factors)
-        if stencil_type == "star"
-        else getBoxAssignments(src_field, dst_field, stencil_range, blocking_factors),
+        (
+            getStarAssignments(src_field, dst_field, stencil_range, blocking_factors)
+            if stencil_type == "star"
+            else getBoxAssignments(
+                src_field, dst_field, stencil_range, blocking_factors
+            )
+        ),
         target="gpu",
-        data_type={"dst": "float", "src": "float", "_constant": "float"},
+        data_type=np_datatype,  # {"dst": "float", "src": "float", "_constant": "float"},
         ghost_layers=ghost_layers,
         gpu_indexing_params={
             "block_size": block_size,
@@ -160,7 +167,7 @@ def getStencilKernel(
     )
 
     bufferSizeBytes = (
-        fieldSize[0] * fieldSize[1] * fieldSize[2] * (4 if datatype == "float32" else 8)
+        fieldSize[0] * fieldSize[1] * fieldSize[2] * (4 if datatype == "float" else 8)
     )
 
     return ast, domainSize, bufferSizeBytes, byte_offset

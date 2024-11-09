@@ -10,6 +10,7 @@ from pystencils.astnodes import (
     SympyAssignment,
     Conditional,
 )
+from warpspeedkernel import fuseAccesses
 
 
 def search_resolved_field_accesses_in_ast(ast):
@@ -126,21 +127,20 @@ def getFieldExprs3D(ast):
     return getFieldsDict(reads), getFieldsDict(writes)
 
 
-def lambdifyExprs(fields):
-    fieldsLambdas = dict()
-    for field in fields:
-        fieldsLambdas[field] = []
-        for expr in fields[field]:
-            addressLambda = sp.lambdify(
-                (
-                    ps.gpucuda.indexing.THREAD_IDX
-                    + ps.gpucuda.indexing.BLOCK_IDX
-                    + ps.gpucuda.indexing.BLOCK_DIM
-                ),
-                expr,
-            )
-            fieldsLambdas[field].append(addressLambda)
-    return fieldsLambdas
+def lambdifyExprs(field):
+
+    lambdas = []
+    for expr in field:
+        addressLambda = sp.lambdify(
+            (
+                ps.gpucuda.indexing.THREAD_IDX
+                + ps.gpucuda.indexing.BLOCK_IDX
+                + ps.gpucuda.indexing.BLOCK_DIM
+            ),
+            expr,
+        )
+        lambdas.append(addressLambda)
+    return lambdas
 
 
 def simplifyExprs(fields):
@@ -163,33 +163,37 @@ def simplifyExprs(fields):
 
 
 class PystencilsWarpSpeedField:
-    def __init__(self, name, linearAddresses, NDAddresses, datatype):
+    def __init__(self, name, linearExpressions, NDAddresses, datatype):
         self.name = name
-        self.linearAddresses = linearAddresses
+
+        self.linearExpressions = linearExpressions
+        self.linearAddresses = lambdifyExprs(linearExpressions)
+
         self.NDAddresses = NDAddresses
         self.datatype = datatype
         self.multiplicity = 1
+        self.datatypes = [datatype] * len(self.linearAddresses)
+
+        self.scalar = False
 
 
 class PyStencilsWarpSpeedKernel:
     def __init__(self, ast, registers=32):
         self.loadExprs, self.storeExprs, loadDTs, storeDTs = getFieldExprs(ast)
-        self.storeLambdas = lambdifyExprs(self.storeExprs)
-        self.loadLambdas = lambdifyExprs(self.loadExprs)
 
         self.loadExprs3D, self.storeExprs3D = getFieldExprs3D(ast)
 
         self.loadFields = [
             PystencilsWarpSpeedField(
-                f, self.loadLambdas[f], self.loadExprs3D[f], loadDTs[f]
+                f, self.loadExprs[f], self.loadExprs3D[f], loadDTs[f]
             )
-            for f in self.loadLambdas
+            for f in self.loadExprs
         ]
         self.storeFields = [
             PystencilsWarpSpeedField(
-                f, self.storeLambdas[f], self.storeExprs3D[f], storeDTs[f]
+                f, self.storeExprs[f], self.storeExprs3D[f], storeDTs[f]
             )
-            for f in self.storeLambdas
+            for f in self.storeExprs
         ]
 
         operation_count = count_operations_in_ast(ast)
@@ -197,3 +201,7 @@ class PyStencilsWarpSpeedKernel:
         self.flops = operation_count["adds"] + operation_count["muls"]
         self.registers = 32
         self.ast = ast
+
+    def fuseAccesses(self):
+        fuseAccesses(self.loadFields)
+        fuseAccesses(self.storeFields)
