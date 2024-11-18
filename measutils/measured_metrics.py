@@ -166,6 +166,8 @@ class MeasuredMetrics:
                 self.L1TagWavefronts,
                 self.L1CyclesActive,
                 self.valuInsts,
+                self.threadsLaunched,
+                self.dfmaCount,
             ) = measureMetricsNBufferKernel(
                 lc.API,
                 [
@@ -181,6 +183,8 @@ class MeasuredMetrics:
                     "l1tex__t_output_wavefronts_pipe_lsu_mem_global_op_ld.sum",
                     "l1tex__cycles_active.sum",
                     "sm__inst_executed.sum",
+                    "smsp__warps_launched.sum",
+                    "smsp__sass_thread_inst_executed_op_dfma_pred_on.sum",
                 ],
                 codeText,
                 "kernel",
@@ -203,6 +207,7 @@ class MeasuredMetrics:
             self.L1TagWavefronts *= 1 / lc.lupCount
             self.L1DataPipeWavefronts *= 1 / lc.lupCount
             self.L1CyclesActive *= 1 / lc.lupCount
+            self.threadsLaunched *= 32
 
         self.L2ltc = 1
         self.L2total = 1
@@ -221,6 +226,7 @@ class MeasuredMetrics:
     def __str__(self):
         columns = [
             [
+                ("threadsLaunched", ""),
                 ("L1CyclesActive", ""),
                 ("valuInsts", ""),
                 ("saluInsts", ""),
@@ -228,6 +234,7 @@ class MeasuredMetrics:
                 ("sfetchInsts", ""),
             ],
             [
+                ("dfmaCount", ""),
                 ("L1TagWavefronts", ""),
                 ("L2Load_tex", "B"),
                 ("L2Store", "B"),
