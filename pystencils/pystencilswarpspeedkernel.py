@@ -198,7 +198,10 @@ class PyStencilsWarpSpeedKernel:
 
         operation_count = count_operations_in_ast(ast)
 
+        self.flins = max(operation_count["adds"], operation_count["muls"])
         self.flops = operation_count["adds"] + operation_count["muls"]
+        self.fp_type = self.storeFields[0].datatype
+
         self.registers = 32
         self.ast = ast
 

@@ -223,10 +223,12 @@ class DeviceRX6900XT(DeviceRDNA):
 
 
 deviceList = [
+    DeviceAmpereA40(),
+    DeviceL40(),
+    DeviceL40s(),
     DeviceV100(),
     DeviceAmpereA100_40GB(),
     DeviceAmpereA100_80GB(),
-    DeviceAmpereA40(),
     DeviceHopperH200(),
     DeviceMI100(),
     DeviceMI210(),
