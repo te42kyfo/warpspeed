@@ -220,6 +220,10 @@ def getL1Cycles(block, grid, loadStoreFields, device):
     totalCycles = 0
     totalCLCount = 0
     for field in loadStoreFields:
+
+        L1CLVisitor = CLVisitor(device.CLAllocationSize)
+        gridIteration([field], block, grid, L1CLVisitor)
+
         separatedFields = [
             DummyFieldAccess(a, d, field.multiplicity)
             for a, d in zip(field.linearAddresses, field.datatypes)
@@ -245,12 +249,21 @@ def getL1Cycles(block, grid, loadStoreFields, device):
             / outerSize[1]
             / outerSize[2]
             / warpSize
+            + L1CLVisitor.CLs
+            / grid[0]
+            / grid[1]
+            / grid[2]
+            / block[0]
+            / block[1]
+            / block[2]
         )
         fieldTagCycles = (
             visitor.tagCycles / outerSize[0] / outerSize[1] / outerSize[2] / warpSize
         )
-        fieldCycles = (
-            visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2] / warpSize
+        fieldCycles = max(
+            visitor.cycles / outerSize[0] / outerSize[1] / outerSize[2] / warpSize,
+            fieldTagCycles,
+            fieldDataPipeCycles,
         )
 
         fieldCLCount = (
