@@ -103,8 +103,12 @@ class WarpspeedKernel:
         fuseAccesses(self.loadFields)
         fuseAccesses(self.storeFields)
 
-    def __init__(self, loadFields, storeFields, registers, flops=0):
+    def __init__(self, loadFields, storeFields, registers, flops=0, flins=0):
         self.registers = registers
+
+        if flins == 0:
+            self.flins = flops / 2
+
         self.flops = flops
 
         self.loadFields = loadFields
