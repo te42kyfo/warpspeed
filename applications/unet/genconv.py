@@ -207,7 +207,7 @@ def getConvWarpSpeedKernel(
             name="output",
             addresses=outputStores,
             datatype=4,
-            dimensions=(width, height, input_channels),
+            dimensions=(width + 2, height + 2, input_channels),
             alignment=0,
             multiplicity=1,
         )
