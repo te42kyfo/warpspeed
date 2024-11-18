@@ -56,6 +56,8 @@ class LaunchConfig:
         self.threadsPerBlock = block[0] * block[1] * block[2]
         self.lupsPerThread = reduce(mul, blocking_factors)
         self.flops = kernel.flops
+        self.flins = kernel.flins
+        self.fp_type = kernel.fp_type
         self.buffers = buffers
         self.alignmentBytes = alignmentBytes
         self.lupCount = domain[0] * domain[1] * domain[2]
@@ -228,13 +230,35 @@ class BasicMetrics:
 
 class DerivedMetrics:
 
+    popt_L1Rover = (1, 4.1, 0.9)
+    popt_WaveOverlapRover0 = (1.0, 15.5, 2.2)
+    popt_WaveOverlapRover1 = (1.0, 15.5, 2.2)
+    popt_L2Rover = (1.0, 6.4, 0.8)
+    popt_L2StoreRover = (1.0, 3.2, 0.7)
+
     def rover(a, b, c, coverage):
         return a * np.exp(-b * np.exp(-c * coverage))
 
-    popt_L1rover = (0.73, 12, 2.34)
+    def L1Rover(L1oversubscription):
+        return DerivedMetrics.rover(*(DerivedMetrics.popt_L1Rover), L1oversubscription)
 
-    def L1rover(L1coverage):
-        return DerivedMetrics.rover(*DerivedMetrics.popt_L1rover, L1coverage)
+    def L2Rover(L2oversubscription):
+        return DerivedMetrics.rover(*(DerivedMetrics.popt_L2Rover), L2oversubscription)
+
+    def L2StoreRover(L2oversubscription):
+        return DerivedMetrics.rover(
+            *(DerivedMetrics.popt_L2StoreRover), L2oversubscription
+        )
+
+    def waveOverlapRover0(WaveOverlapOversubscription0):
+        return DerivedMetrics.rover(
+            *DerivedMetrics.popt_WaveOverlapRover0, WaveOverlapOversubscription0
+        )
+
+    def waveOverlapRover1(WaveOverlapOversubscription1):
+        return DerivedMetrics.rover(
+            *DerivedMetrics.popt_WaveOverlapRover1, WaveOverlapOversubscription1
+        )
 
     def __init__(self, lc, basic, device, meas=None):
         self.lc = lc
@@ -245,6 +269,7 @@ class DerivedMetrics:
         lupsPerThread = (
             lc.blocking_factors[0] * lc.blocking_factors[1] * lc.blocking_factors[2]
         )
+
         self.flopsPerLup = lc.flops
 
         # Pass through of the estimated cycles quantity
@@ -302,7 +327,7 @@ class DerivedMetrics:
 
         self.L2LoadV1 = self.fieldL2LoadV1["total"]
 
-        self.L1LoadEvicts = (self.L1Load - self.L2LoadV1) * DerivedMetrics.L1rover(
+        self.L1LoadEvicts = (self.L1Load - self.L2LoadV1) * DerivedMetrics.L1Rover(
             self.L1coverage
         )
 
@@ -342,6 +367,21 @@ class DerivedMetrics:
             for (fieldName, v) in self.basic.fieldWaveMemVolumes.items()
         }
 
+        self.waveOverlapOversubscription = [
+            (
+                self.basic.waveMemOld[0]
+                + self.basic.waveMemLoadNew
+                - self.basic.waveMemLoadOverlap[0]
+            )
+            / max(1, device.sizeL2),
+            (
+                self.basic.waveMemOld[1]
+                + self.basic.waveMemLoadNew
+                - self.basic.waveMemLoadOverlap[1]
+            )
+            / max(1, device.sizeL2),
+        ]
+
         def rover0(Vnew, Vold):
             if Vold == 0:
                 oversubscription = 0.1
@@ -358,11 +398,19 @@ class DerivedMetrics:
             return 1.0 * exp(-0.0036 * exp(3.97 * oversubscription))
 
         # compute memory load balance reduced by hits in previous wave
-
         self.memLoadOverlapHit = (
-            self.memLoadOverlap[0] * rover0(0, self.basic.waveMemOld[0]),
-            self.memLoadOverlap[1] * rover1(0, self.basic.waveMemOld[1]),
+            self.memLoadOverlap[0]
+            * (
+                1
+                - DerivedMetrics.waveOverlapRover0(self.waveOverlapOversubscription[0])
+            ),
+            self.memLoadOverlap[1]
+            * (
+                1
+                - DerivedMetrics.waveOverlapRover1(self.waveOverlapOversubscription[1])
+            ),
         )
+
         self.memLoadV2 = (
             self.memLoadV1 - self.memLoadOverlapHit[0] - self.memLoadOverlapHit[1]
         )
@@ -370,9 +418,15 @@ class DerivedMetrics:
         self.fieldMemLoadV2 = {
             fieldName: self.fieldMemLoadV1[fieldName]
             - self.fieldMemLoadOverlap[fieldName][0]
-            * rover0(0, self.basic.waveMemOld[0])
+            * (
+                1
+                - DerivedMetrics.waveOverlapRover0(self.waveOverlapOversubscription[0])
+            )
             - self.fieldMemLoadOverlap[fieldName][1]
-            * rover1(0, self.basic.waveMemOld[1])
+            * (
+                1
+                - DerivedMetrics.waveOverlapRover0(self.waveOverlapOversubscription[1])
+            )
             for (fieldName, v) in self.basic.fieldWaveMemVolumes.items()
         }
         #
@@ -385,15 +439,13 @@ class DerivedMetrics:
         self.L2Oversubscription = self.waveL2Alloc / self.device.sizeL2
 
         # estimate partially written cache lines evicted before completion using L2 current coverage
-        self.memStoreEvicts = max(0, self.L2Store - self.memStoreV1) * (
-            1 - 1.0 * np.exp(-0.044 * np.exp(0.61 * self.L2Oversubscription))
-        )
+        self.memStoreEvicts = max(
+            0, self.L2Store - self.memStoreV1
+        ) * DerivedMetrics.L2StoreRover(self.L2Oversubscription)
 
         # estimate the L2 load evicts using coverage as proxy
-        self.memLoadEvicts = (
-            (self.L2LoadV2 - self.memLoadV2)
-            * 0.386
-            * np.exp(-9 * np.exp(-0.639 * self.L2Oversubscription))
+        self.memLoadEvicts = (self.L2LoadV2 - self.memLoadV2) * DerivedMetrics.L2Rover(
+            self.L2Oversubscription
         )
 
         # memory store balance including store evicts
@@ -409,9 +461,12 @@ class DerivedMetrics:
             (
                 self.device.clock
                 * self.device.smCount
-                * self.device.fp32CycleSM
-                * 2
-                / self.lc.flops
+                * (
+                    self.device.fp32CycleSM
+                    if self.lc.fp_type == 4
+                    else self.device.fp64CycleSM
+                )
+                / self.lc.flins
             )
             if lc.flops > 0
             else 0
@@ -478,7 +533,7 @@ class DerivedMetrics:
             )
             threadCycles = (
                 +L1Cycles * self.lc.blocksPerSM * self.lc.threadsPerBlock / 32
-                + lc.flops * 2
+                + lc.flins * 2
                 + device.clock
                 * (
                     memVolume * waveLups / device.memBW
@@ -487,7 +542,7 @@ class DerivedMetrics:
             )
             print(
                 "Flops: {:4.0f} L1:  {:4.0f}  L2: {:4.0f}   DRAM: {:4.0f}   total: {:4.0f} ".format(
-                    lc.flops * 2,
+                    lc.flins * 2,
                     L1Cycles,
                     L2Volume * waveLups / device.L2BW * device.clock,
                     memVolume * waveLups / device.memBW * device.clock,
@@ -515,13 +570,20 @@ class DerivedMetrics:
             self.perfL1Pheno = (
                 self.device.smCount
                 * self.device.clock
-                / max(meas.L1DataPipeWavefronts, meas.L1TagWavefronts)
+                / max(1, meas.L1DataPipeWavefronts, meas.L1TagWavefronts)
             )
             self.perfPheno, self.limPheno = selectLimiter(
                 [self.perfFlops, self.perfL1Pheno, self.perfL2Pheno, self.perfMemPheno]
             )
 
-            self.perf2LimPheno, self.lim2LimPheno = selectLimiter([self.perfMemPheno])
+            self.perf2LimPheno, self.lim2LimPheno = selectLimiter(
+                [
+                    self.perfFlops,
+                    2 * self.perfFlops,
+                    2 * self.perfFlops,
+                    self.perfMemPheno,
+                ]
+            )
             self.perfEPMPheno = predictPerformance(
                 device,
                 lc,
