@@ -132,13 +132,18 @@ class L1thruVisitor:
             self.coalesced += multiplicity
 
         dataPipeCycles = countBankConflicts(
-            self.device.CLAllocationSize, laneAddresses, datatype
+            self.device.L1BankWidth, laneAddresses, datatype
         )
+
+        # if not coalesced and self.device.L1Model == "CDNA":
+        #    dataPipeCycles = dataPipeCycles * 2
 
         laneCLs = np.unique(laneAddresses // self.device.CLAllocationSize)
         self.CLCount += laneCLs.size * multiplicity
 
         if self.device.L1Model == "CDNA":
+            tagCycles = countBankConflicts(2, laneCLs, 1)
+        elif self.device.L1Model == "RDNA":
             tagCycles = countBankConflicts(2, laneCLs, 1)
         elif self.device.L1Model == "NV":
             tagCycles = int(math.ceil((max(1, laneCLs.size) + 2) / 4))
@@ -150,10 +155,15 @@ class L1thruVisitor:
         self.dataPipeCycles += dataPipeCycles * multiplicity
 
         if self.device.L1Model == "CDNA":
-            cycles = max(4 if datatype != 4 else 1, tagCycles, dataPipeCycles)
+            cycles = max(
+                4 if datatype != 4 or not coalesced else 1, tagCycles, dataPipeCycles
+            )
+
+        elif self.device.L1Model == "RDNA":
+            cycles = max(tagCycles, dataPipeCycles)
         elif self.device.L1Model == "NV":
             cycles = max(
-                self.device.subWarpSize / self.device.lsuCount,
+                self.device.subWarpSize * datatype / (self.device.lsuCount * 4),
                 tagCycles,
                 dataPipeCycles,
             )
@@ -361,8 +371,8 @@ def getL2LoadOverlapBlockVolume(block, totalGrid, loadAddresses, fetchSize):
     return fieldVolumes
 
 
-def getL2StoreBlockVolume(block, grid, storeFields, device):
-    warp = getWarp(device.warpSize, block)
+def getL2StoreBlockVolume(block, grid, storeFields, warpSize, clSize):
+    warp = getWarp(warpSize, block)
 
     outerSize = tuple(grid[i] * block[i] // warp[i] for i in range(0, 3))
 
@@ -374,9 +384,9 @@ def getL2StoreBlockVolume(block, grid, storeFields, device):
             for a, d in zip(field.linearAddresses, field.datatypes)
         ]
 
-        visitor = CLVisitor(device.CLFetchSize)
+        visitor = CLVisitor(clSize)
         gridIteration(separatedFields, warp, outerSize, visitor)
-        volume = visitor.CLs * device.CLFetchSize / grid[0] / grid[1] / grid[2]
+        volume = visitor.CLs * clSize / grid[0] / grid[1] / grid[2]
         fieldVolume[field.name] = volume
         totalVolume += volume
 
