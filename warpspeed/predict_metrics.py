@@ -55,8 +55,10 @@ class LaunchConfig:
         self.truncatedWaveSize = tuple(min(4, c) for c in self.waveSize)
         self.threadsPerBlock = block[0] * block[1] * block[2]
         self.lupsPerThread = reduce(mul, blocking_factors)
-        self.flops = kernel.flops
-        self.flins = kernel.flins
+
+        self.flopsPerLup = kernel.flops / self.lupsPerThread
+        self.flinsPerLup = kernel.flins / self.lupsPerThread
+
         self.fp_type = kernel.fp_type
         self.buffers = buffers
         self.alignmentBytes = alignmentBytes
@@ -66,6 +68,12 @@ class LaunchConfig:
     def fromDict(values):
         self = LaunchConfig()
         self.__dict__ = values
+
+        if not "flopsPerLup" in values:
+            self.flopsPerLup = self.flops
+            self.flinsPerLup = self.flops / 2
+            self.fp_type = 4
+
         return self
 
     def __str__(self):
@@ -109,7 +117,11 @@ class BasicMetrics:
         self.blockL1Load = max(
             1,
             getL2StoreBlockVolume(
-                lc.block, lc.truncatedWaveSize, kernel.loadFields, device
+                lc.block,
+                lc.truncatedWaveSize,
+                kernel.loadFields,
+                device.warpSize,
+                device.CLFetchSize,
             )["total"],
         )
 
@@ -138,7 +150,11 @@ class BasicMetrics:
         )
 
         self.fieldBlockL2Store = getL2StoreBlockVolume(
-            lc.block, lc.truncatedWaveSize, kernel.storeFields, device
+            lc.block,
+            lc.truncatedWaveSize,
+            kernel.storeFields,
+            device.warpSize,
+            device.CLWriteSize,
         )
 
         self.blockL2Store = self.fieldBlockL2Store["total"]
@@ -270,7 +286,10 @@ class DerivedMetrics:
             lc.blocking_factors[0] * lc.blocking_factors[1] * lc.blocking_factors[2]
         )
 
-        self.flopsPerLup = lc.flops
+        if getattr(lc, "flopsPerLup", 0) > 0:
+            self.flopsPerLup = lc.flopsPerLup
+        elif getattr(lc, "flops", 0) > 0:
+            self.flopsPerLup = lc.flops
 
         # Pass through of the estimated cycles quantity
         self.fieldL1Cycles = {
@@ -298,8 +317,8 @@ class DerivedMetrics:
         # Remap block quantity to thread balance
         self.L1Load = self.basic.blockL1Load / self.lc.threadsPerBlock / lupsPerThread
 
-        self.L1OverlapOversubscription = min(
-            5, self.basic.fieldBlockL2Load["total"] / self.device.sizeL1
+        self.L1OverlapOversubscription = (
+            self.basic.fieldBlockL2Load["total"] / self.device.sizeL1
         )
 
         #
@@ -321,7 +340,7 @@ class DerivedMetrics:
         self.fieldL2LoadV2 = {
             fieldName: self.fieldL2LoadV1[fieldName]
             - self.fieldL2LoadOverlap[fieldName]
-            * (exp(-0.0036 * exp(8 * self.L1OverlapOversubscription)))
+            * (1 - DerivedMetrics.L1Rover(self.L1OverlapOversubscription * 2))
             for (fieldName) in self.basic.fieldBlockL2Load.keys()
         }
 
@@ -333,6 +352,7 @@ class DerivedMetrics:
 
         # Version 2 of L2Load that includes the load evictions and other TB hits
         self.L2LoadV2 = self.fieldL2LoadV2["total"] + self.L1LoadEvicts
+        self.L2LoadOverlap = self.fieldL2LoadOverlap["total"]
 
         # Store volume written through to L2 cache
         self.fieldL2Store = {
@@ -340,6 +360,9 @@ class DerivedMetrics:
             for (fieldName, v) in self.basic.fieldBlockL2Store.items()
         }
         self.L2Store = self.fieldL2Store["total"]
+
+        self.L2totalV1 = self.L2LoadV1 + self.L2Store
+        self.L2totalV2 = self.L2LoadV2 + self.L2Store
 
         # memory load volume from memory footprint of current wave
         self.memLoadV1 = (
@@ -381,21 +404,6 @@ class DerivedMetrics:
             )
             / max(1, device.sizeL2),
         ]
-
-        def rover0(Vnew, Vold):
-            if Vold == 0:
-                oversubscription = 0.1
-            else:
-                oversubscription = min(10, max(0.01, Vold / (device.sizeL2 - Vnew)))
-
-            return 1.0 * exp(-0.078 * exp(1.03 * (oversubscription - 0.2)))
-
-        def rover1(Vnew, Vold):
-            if Vold == 0:
-                oversubscription = 0.1
-            else:
-                oversubscription = min(10, max(0.01, Vold / (device.sizeL2 - Vnew)))
-            return 1.0 * exp(-0.0036 * exp(3.97 * oversubscription))
 
         # compute memory load balance reduced by hits in previous wave
         self.memLoadOverlapHit = (
@@ -466,19 +474,19 @@ class DerivedMetrics:
                     if self.lc.fp_type == 4
                     else self.device.fp64CycleSM
                 )
-                / self.lc.flins
+                / self.lc.flinsPerLup
             )
-            if lc.flops > 0
+            if getattr(lc, "flinsPerLup", 0) > 0
             else 0
         )
 
         self.perfL1 = self.device.smCount * self.device.clock / self.L1Cycles
 
         # L2 bandwidth performance estimate. V1 without L1 evicts. load and store are independent
-        self.perfL2V1 = self.device.L2BW / (self.L2LoadV1 + self.L2Store)
+        self.perfL2V1 = self.device.L2BW / self.L2totalV1
 
         # L2 bandwidth performance estimate. V2 with L1 evicts. load and store are independent
-        self.perfL2V2 = self.device.L2BW / (self.L2LoadV2 + self.L2Store)
+        self.perfL2V2 = self.device.L2BW / self.L2totalV2
 
         # memory bandwidth performance estimate. V1 with simple footprints
         self.perfMemV1 = self.device.memBW / (self.memLoadV1 + self.memStoreV1)
@@ -563,8 +571,9 @@ class DerivedMetrics:
             self.perfMemPheno = self.device.memBW / max(
                 0.1, meas.memLoad + meas.memStore
             )
+
             self.perfL2Pheno = self.device.L2BW / max(
-                0.1, meas.L2Load_tex + meas.L2Store
+                0.1, getattr(meas, "L2total", 0), meas.L2Load_tex + meas.L2Store
             )
 
             self.perfL1Pheno = (
@@ -592,11 +601,11 @@ class DerivedMetrics:
                 (meas.memLoad + meas.memStore) * 32,
             )
 
-        if getattr(lc, "flops", 0) > 0:
+        if getattr(lc, "flopsPerLup", 0) > 0:
             for a in dir(self):
                 if a.startswith("perf"):
                     self.__dict__["perfTFlops" + a[4:]] = (
-                        getattr(self, a) * lc.flops / 1000
+                        getattr(self, a) * lc.flopsPerLup / 1000
                     )
 
     def stringKey(self, key, labelWidth, valueWidth):
@@ -620,6 +629,7 @@ class DerivedMetrics:
                 ("L1Load", "B/Lup"),
                 ("smL1Alloc", "kB"),
                 ("L1LoadEvicts", "B/Lup"),
+                ("L2LoadOverlap", "B/Lup"),
                 ("L2LoadV1", "B/Lup"),
                 ("L2LoadV2", "B/Lup"),
             ],

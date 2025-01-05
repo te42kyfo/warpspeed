@@ -35,7 +35,7 @@ def predictPerformanceV1(kernel, block, grid, registers):
 
     Tint = 40 * 5 * max(1, warpsPerSM / 12)
     TL1thru = L1LoadCycles * warpsPerSM
-    TDP = kernel.flops * max(1, (warpsPerSM / 8)) * 8
+    TDP = kernel.flopsPerLup * max(1, (warpsPerSM / 8)) * 8
     Tlat_mem = (
         max(271, (warpsPerSM * 32 * 16 * SMcount) / 780 * clock)
         if kernel.bytes > 0
@@ -58,7 +58,7 @@ def predictPerformanceV1(kernel, block, grid, registers):
     for i in range(0, 200):
         Tint = 40 * 5 * max(1, Tint / Ttotal * warpsPerSM / 12)
         TL1thru = L1LoadCycles * max(1, TL1thru / Ttotal * warpsPerSM)
-        TDP = kernel.flops * max(1, warpsPerSM * (TDP / Ttotal) / 8) * 8
+        TDP = kernel.flopsPerLup * max(1, warpsPerSM * (TDP / Ttotal) / 8) * 8
         Tlat_mem = (
             max(271, Tlat_mem / Ttotal * (warpsPerSM * 32 * 16 * SMcount) / 780 * clock)
             if kernel.bytes > 0
@@ -151,7 +151,7 @@ def predictPerformance(device, lc, L1Cycles, L2WarpVolume, memWarpVolume):
     Tint = 1000 * 4 * max(1, warpsPerSM / 8)
 
     TL1thru = L1Cycles * warpsPerSM
-    TDP = lc.flops * max(1, (warpsPerQuadrant)) * 4
+    TDP = lc.flopsPerLup * max(1, (warpsPerQuadrant)) * 4
     Tlat_mem = memLatency(
         warpsPerSM * device.smCount, min(32 * 8, memWarpVolume), device.clock
     ) * (memWarpVolume / 32 / 8)
@@ -173,7 +173,7 @@ def predictPerformance(device, lc, L1Cycles, L2WarpVolume, memWarpVolume):
     for i in range(0, 200):
         Tint = 1000 * 4 * overlap(Tint / Ttotal, warpsPerSM, 8)
         TL1thru = L1Cycles * overlap(TL1thru / Ttotal, warpsPerSM, 1)
-        TDP = lc.flops * 4 * overlap(TDP / Ttotal, warpsPerQuadrant, 4)
+        TDP = lc.flopsPerLup * 4 * overlap(TDP / Ttotal, warpsPerQuadrant, 4)
         Tlat_mem = memLatency(
             Tlat_mem / Ttotal * warpsPerSM * device.smCount,
             min(memWarpVolume, 32 * 8),
