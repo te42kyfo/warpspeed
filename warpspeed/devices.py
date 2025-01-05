@@ -16,8 +16,12 @@ class Device:
 
 
 class DeviceVolta(Device):
+
+    L1BankWidth = 128
     CLAllocationSize = 128
     CLFetchSize = 32
+    CLWriteSize = 32
+    DRAMFetchSize = 32
 
     warpSize = 32
 
@@ -37,7 +41,7 @@ class DeviceV100(DeviceVolta):
     sizeL2 = 6 * 1024 * 1024
     sizeL1 = 128 * 1024
 
-    L2BW = 2500
+    L2BW = 2300
     memBW = 790
     name = "Tesla V100-PCIE-32GB"
     displayName = "V100"
@@ -52,7 +56,7 @@ class DeviceAmpere(DeviceVolta):
 
 
 class DeviceAmpereA100_40GB(DeviceAmpere):
-    L2BW = 4500
+    L2BW = 4000
     memBW = 1400
     name = "NVIDIA A100-SXM4-40GB"
     displayName = "A100"
@@ -60,7 +64,7 @@ class DeviceAmpereA100_40GB(DeviceAmpere):
 
 class DeviceAmpereA100_80GB(DeviceAmpere):
     memBW = 1600
-    L2BW = 4500
+    L2BW = 4000
     name = "NVIDIA A100-SXM4-80GB"
     displayName = "A100"
 
@@ -75,11 +79,11 @@ class DeviceAmpereA40(DeviceAmpere):
     subWarpSize = 32
     lsuCount = 16
 
-    fp32CycleSM = 64
-    fp64CycleSM = 4
+    fp32CycleSM = 128
+    fp64CycleSM = 2
 
     memBW = 670
-    L2BW = 2200
+    L2BW = 2900
     name = "NVIDIA A40"
     displayName = "A40"
 
@@ -88,13 +92,13 @@ class DeviceL40(DeviceAmpereA40):
     clock = 2.49
     smCount = 142
 
+    DRAMFetchSize = 32
+
     sizeL2 = 96 * 1024 * 1024
     sizeL1 = 128 * 1024
 
     memBW = 800
-    L2BW = 6100
-
-    fp32CycleSM = 128
+    L2BW = 4300
 
     displayName = "L40"
     name = "NVIDIA L40"
@@ -107,8 +111,8 @@ class DeviceL40s(DeviceL40):
     sizeL2 = 96 * 1024 * 1024
     sizeL1 = 128 * 1024
 
-    memBW = 800
-    L2BW = 6120
+    memBW = 780
+    L2BW = 4300
 
     displayName = "L40s"
     name = "NVIDIA L40S"
@@ -117,8 +121,8 @@ class DeviceL40s(DeviceL40):
 class DeviceHopperH200(DeviceAmpere):
     clock = 1.98
     smCount = 132
-    memBW = 3800
-    L2BW = 11100
+    memBW = 3200
+    L2BW = 6900
     name = "H200"
     displayName = "GH200"
     name = "NVIDIA GH200 480GB"
@@ -131,8 +135,12 @@ class DeviceHopperH200(DeviceAmpere):
 
 
 class DeviceCDNA(Device):
+    L1BankWidth = 64
     CLAllocationSize = 64
     CLFetchSize = 64
+    CLWriteSize = 64
+
+    DRAMFetchSize = 32
 
     warpSize = 64
 
@@ -166,7 +174,7 @@ class DeviceMI210(DeviceCDNA):
 
     fp64CycleSM = 64
 
-    L2BW = 4800
+    L2BW = 2900
     memBW = 1400
 
     displayName = "MI210"
@@ -180,23 +188,52 @@ class DeviceMI300(DeviceCDNA):
     sizeL2 = 4 * 1024 * 1024
     sizeL1 = 32 * 1024
 
-    fp64CycleSM = 128
+    fp64CycleSM = 64
     fp32CycleSM = 64
 
     CLAllocationSize = 128
     CLFetchSize = 128
+    CLWriteSize = 64
 
-    L2BW = 10800
-    memBW = 4100
+    L2BW = 13700
+    memBW = 4000
 
     displayName = "MI300X"
-
     name = "AMD Instinct MI300X"
 
 
+class DeviceMI300_CPX(DeviceMI300):
+    smCount = 38
+
+    displayName = "MI300X-CPX"
+    name = "AMD Instinct MI300X-CPX"
+
+
+class DeviceMI300A(DeviceMI300):
+    smCount = 228
+
+    L2BW = 10100
+    memBW = 3000
+
+    displayName = "MI300A"
+    name = "AMD Instinct MI300A"
+
+
+class DeviceMI300A_CPX(DeviceMI300A):
+    smCount = 38
+
+    displayName = "MI300A-CPX"
+    name = "AMD Instinct MI300A-CPX"
+
+
 class DeviceRDNA(Device):
+    L1BankWidth = 128
     CLAllocationSize = 128
+
     CLFetchSize = 128
+    CLWriteSize = 64
+
+    DRAMFetchSize = 32
 
     warpSize = 32
 
@@ -206,7 +243,7 @@ class DeviceRDNA(Device):
     subWarpSize = 32
 
     API = "HIP"
-    L1Model = "CDNA"
+    L1Model = "RDNA"
 
 
 class DeviceRX6900XT(DeviceRDNA):
@@ -215,8 +252,8 @@ class DeviceRX6900XT(DeviceRDNA):
     clock = 2.56
     smCount = 80
     sizeL2 = 4 * 1024 * 1024
-    L2BW = 5000
-    memBW = 550
+    L2BW = 2800
+    memBW = 520
 
     displayName = "RX6900XT"
     name = "AMD Radeon RX 6900 XT"
@@ -233,6 +270,9 @@ deviceList = [
     DeviceMI100(),
     DeviceMI210(),
     DeviceMI300(),
+    DeviceMI300_CPX(),
+    DeviceMI300A(),
+    DeviceMI300A_CPX(),
     DeviceRX6900XT(),
 ]
 
@@ -244,117 +284,3 @@ def selectDevice(name):
 
     print("No device with name ", name, " in device list!")
     return None
-
-
-import inspect
-
-
-tableList = [
-    DeviceAmpereA40(),
-    DeviceL40s(),
-    DeviceV100(),
-    DeviceAmpereA100_80GB(),
-    DeviceHopperH200(),
-    DeviceMI100(),
-    DeviceMI210(),
-    DeviceMI300(),
-    DeviceRX6900XT(),
-]
-
-
-propertyList = []
-
-
-def getDevicePropertyList():
-    for device in deviceList:
-        for k, v in inspect.getmembers(device):
-            if not str(k).startswith("__") and k not in propertyList:
-                propertyList.append(k)
-
-    for prop in propertyList:
-        print(prop, end=" & ")
-        for device in deviceList:
-            if inspect.ismethod(getattr(device, prop, "-")):
-                print(getattr(device, prop)(), end=" & ")
-            else:
-                print(getattr(device, prop, "-"), end=" & ")
-        print("\\\\")
-
-    print()
-
-    print("  &", end="")
-    for device in tableList:
-        print("\\rot{" + device.name + "}", end=" & ")
-    print("\\\\")
-
-    propList = [
-        ("displayName", "", 0),
-        ("API", "", 0),
-        ("L1Model", "", 0),
-        ("warpSize", "", 0),
-        ("subWarpSize", "", 0),
-        ("smCount", "", 0),
-        ("clock", "GHz", 0),
-        ("CLAllocationSize", "\\bytes", 0),
-        ("CLFetchSize", "\\bytes", 0),
-        ("lsuCount", "", 0),
-        ("sizeL1", "\\KB", 1024),
-        ("sizeL2", "\\MB", 1024 * 1024),
-        ("fp32CycleSM", "", 0),
-        ("fp64CycleSM", "", 0),
-        ("peakFP32", "\\TFS", 1000),
-        ("peakFP64", "\\TFS", 1000),
-        ("L2BW", "\\TBS", 1000),
-        ("memBW", "\\TBS", 1000),
-    ]
-    for prop in propList:
-        propName = prop[0]
-        propUnit = prop[1]
-        print("\\rotg{", propName, "} ", end=" & ")
-
-        prevPropString = ""
-        prevCounter = 0
-
-        for device in tableList:
-
-            if inspect.ismethod(getattr(device, propName, "-")):
-                val = getattr(device, propName)()
-            else:
-                val = getattr(device, propName, "-")
-            if prop[2] != 0:
-                val /= prop[2]
-                if val - int(val) > 0.1:
-                    if val > 1:
-                        propString = "{:.1f}".format(val)
-                    else:
-                        propString = "{:.2f}".format(val)
-                else:
-                    propString = "{:.0f}".format(val)
-            else:
-                propString = val
-
-            if prevPropString != propString and prevPropString != "":
-                print(
-                    "\\multicolumn{",
-                    prevCounter,
-                    "}{W}{",
-                    prevPropString,
-                    "}",
-                    end=" & ",
-                )
-                prevCounter = 1
-                prevPropString = propString
-            else:
-                prevPropString = propString
-                prevCounter += 1
-
-        print(
-            "\\multicolumn{",
-            prevCounter,
-            "}{W}{",
-            prevPropString,
-            "}",
-            end=" ",
-        )
-        print(" & \\cellcolor{white}", propUnit, end="")
-        print("\\\\")
