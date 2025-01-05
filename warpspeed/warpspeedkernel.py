@@ -2,6 +2,7 @@
 
 from predict_metrics import *
 import sympy as sp
+import math
 
 
 class Field:
@@ -103,15 +104,16 @@ class WarpspeedKernel:
         fuseAccesses(self.loadFields)
         fuseAccesses(self.storeFields)
 
-    def __init__(self, loadFields, storeFields, registers, flops=0, flins=0):
+    def __init__(self, loadFields, storeFields, registers, flops=0, flins=0, fp_type=8):
         self.registers = registers
 
         if flins == 0:
-            self.flins = flops / 2
+            self.flins = int(math.ceil(flops / 2))
 
         self.flops = flops
 
         self.loadFields = loadFields
         self.storeFields = storeFields
-
+        self.fp_type = fp_type
         self.flops = flops
+        self.flins = flins
