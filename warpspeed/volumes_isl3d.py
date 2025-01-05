@@ -17,7 +17,7 @@ def getMemBlockVolumeISL3D(
             mapstring = "{{[tidx, tidy, tidz] -> {0}[ax, ay, az] : ax = floor(({1}) / {4}) and ay = {2} and az = {3} }}".format(
                 field.name,
                 *[str(a) for a in access],
-                device.CLFetchSize // field.datatype
+                device.DRAMFetchSize // field.datatype
             )
             if field.accessMap is None:
                 field.accessMap = isl.BasicMap(mapstring)
@@ -95,7 +95,7 @@ def getMemBlockVolumeISL3D(
         (grid[0] - waveDim[0], grid[1] - shiftY, grid[2] // 2 + waveDim[2]),
     )
     yplaneThreadSet = getThreadSet(
-        (0, max(0, grid[1] - 2 * waveDim[1] - shiftY), grid[2] // 2),
+        (0, max(0, grid[1] - waveDim[1] - 1 - shiftY), grid[2] // 2),
         (grid[0], grid[1] - waveDim[1] - shiftY, grid[2] // 2 + waveDim[2]),
     )
     zplaneThreadSet = getThreadSet(
@@ -128,34 +128,34 @@ def getMemBlockVolumeISL3D(
 
         for field in fields:
             addSet = currThreadSet.apply(field.accessMap).coalesce()
-            fieldVNew = countSet(addSet) * device.CLFetchSize * field.multiplicity
+            fieldVNew = countSet(addSet) * device.DRAMFetchSize * field.multiplicity
             VNew += fieldVNew
 
             xAddSet = xplaneThreadSet.apply(field.accessMap).coalesce()
-            VOldX += countSet(xAddSet) * device.CLFetchSize * field.multiplicity
+            VOldX += countSet(xAddSet) * device.DRAMFetchSize * field.multiplicity
             fieldVOverlapX = (
                 countSet(addSet.intersect(xAddSet))
-                * device.CLFetchSize
+                * device.DRAMFetchSize
                 * field.multiplicity
             )
             VOverlapX += fieldVOverlapX
             addSet = addSet.subtract(xAddSet)
 
             yAddSet = yplaneThreadSet.apply(field.accessMap).coalesce()
-            VOldY += countSet(yAddSet) * device.CLFetchSize * field.multiplicity
+            VOldY += countSet(yAddSet) * device.DRAMFetchSize * field.multiplicity
             fieldVOverlapY = (
                 countSet(addSet.intersect(yAddSet))
-                * device.CLFetchSize
+                * device.DRAMFetchSize
                 * field.multiplicity
             )
             VOverlapY += fieldVOverlapY
             addSet = addSet.subtract(yAddSet)
 
             zAddSet = zplaneThreadSet.apply(field.accessMap).coalesce()
-            VOldZ += countSet(zAddSet) * device.CLFetchSize * field.multiplicity
+            VOldZ += countSet(zAddSet) * device.DRAMFetchSize * field.multiplicity
             fieldVOverlapZ = (
                 countSet(addSet.intersect(zAddSet))
-                * device.CLFetchSize
+                * device.DRAMFetchSize
                 * field.multiplicity
             )
             VOverlapZ += fieldVOverlapZ
@@ -168,11 +168,11 @@ def getMemBlockVolumeISL3D(
 
         return (
             VNew / qWaveFactor,
-            VOldX / qWaveFactor,
+            VOldX,
             VOverlapX / qWaveFactor,
-            VOldY / qWaveFactor,
+            VOldY,
             VOverlapY / qWaveFactor,
-            VOldZ / qWaveFactor,
+            VOldZ,
             VOverlapZ / qWaveFactor,
         )
 
@@ -185,6 +185,7 @@ def getMemBlockVolumeISL3D(
         VLoadOldZ,
         VLoadOverlapZ,
     ) = getVolumes(loadFields)
+
     (
         VStoreNew,
         VStoreOldX,
