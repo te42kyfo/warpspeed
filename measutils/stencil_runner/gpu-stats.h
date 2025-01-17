@@ -14,6 +14,7 @@ struct GPU_stats {
 };
 
 GPU_stats getGPUStats(int deviceId) {
+
 #ifndef __HIP__
   static bool initialized = false;
   if (!initialized) {
@@ -51,11 +52,17 @@ GPU_stats getGPUStats(int deviceId) {
   rsmi_gpu_metrics_t pgpu_metrics;
   ret = rsmi_dev_gpu_metrics_info_get(deviceId, &pgpu_metrics);
 
+  RSMI_POWER_TYPE power_type;
+  ret = rsmi_dev_power_get(deviceId, &power, &power_type);
+  if (power_type == RSMI_INVALID_POWER)
+    std::cout << "rsmi_dev_power_get: invalid power\n";
+
   ret = rsmi_dev_gpu_clk_freq_get(deviceId, RSMI_CLK_TYPE_SYS, &clockStruct);
 
-  power = pgpu_metrics.current_socket_power * 1000;
+  // power = pgpu_metrics.current_socket_power * 1000;
   temperature /= 1000;
   currentClock = clockStruct.frequency[clockStruct.current] / 1e6;
+  power /= 1000;
 
   return {(double)currentClock, (double)power, (double)temperature};
 #endif

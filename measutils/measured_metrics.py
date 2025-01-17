@@ -43,16 +43,16 @@ class MeasuredMetrics:
                 self.valuInsts,
                 self.saluInsts,
                 self.sfetchInsts,
-                rdReq,
-                wrReq,
+                readKB,
+                self.threadsLaunched,
             ) = measureMetricsNBufferKernel(
                 lc.API,
                 [
                     "VALUInsts",
                     "SALUInsts",
                     "SFetchInsts",
-                    "GL2C_EA_RDREQ_64B_sum",
-                    "GL2C_EA_WRREQ_64B_sum",
+                    "FETCH_SIZE",
+                    "Wavefronts",
                 ],
                 codeText,
                 "kernel",
@@ -62,27 +62,37 @@ class MeasuredMetrics:
                 lc.alignmentBytes,
             )
 
-            self.memLoad = rdReq * 64 / lc.lupCount
-            self.memStore = wrReq * 64 / lc.lupCount
+            (write64Breq, L2hits, L2miss) = measureMetricsNBufferKernel(
+                lc.API,
+                [
+                    "GL2C_EA_WRREQ_64B_sum",
+                    "GL2C_HIT_sum",
+                    "GL2C_MISS_sum",
+                ],
+                codeText,
+                "kernel",
+                lc.block,
+                lc.grid,
+                lc.buffers,
+                lc.alignmentBytes,
+            )
+            self.memLoad = readKB * 1024 / lc.lupCount
+            self.memStore = write64Breq * 64 / lc.lupCount
 
-            L2hits = 1
-            L2miss = 1
+            self.L2total = (L2hits + L2miss) * 128 / lc.lupCount
 
-            self.L2Load_tex = (L2hits + L2miss) * 64 / lc.lupCount
-            self.L2Store = 1
+            self.L2Load_tex = -1
+            self.L2Store = -1
+            self.L2Load = -1
 
-            self.memStore = 1
-
-            self.L2Load = self.L2Load_tex
-
-            self.L1Wavefronts_TA = 1
-            self.L1Wavefronts_TD = 1
+            self.L1Wavefronts_TA = -1
+            self.L1Wavefronts_TD = -1
             self.L1TagWavefronts = self.L1Wavefronts_TA
             self.L1DataPipeWavefronts = self.L1Wavefronts_TD
 
-            self.UTCL1_requests = 1
-            self.UTCL1_miss = 1
-            self.L1Wavefronts = 1
+            self.UTCL1_requests = -1
+            self.UTCL1_miss = -1
+            self.L1Wavefronts = -1
 
         elif lc.API == "HIP":
             (
@@ -136,11 +146,24 @@ class MeasuredMetrics:
             )
 
             self.memLoad *= 1024.0 / lc.lupCount
+
             self.memStore *= 1024.0 / lc.lupCount
 
             self.L2Load_tex *= 64.0 / lc.lupCount
             self.L2Load = self.L2Load_tex
             self.L2Store *= 64.0 / lc.lupCount
+
+            if lc.device.startswith("AMD Instinct MI300A"):
+
+                print("MI300A special treatment")
+                self.L2Load_tex *= 2
+                self.L2Load *= 2
+
+            if lc.device.startswith("AMD Instinct MI300X"):
+                print("MI300X special treatment")
+                self.memLoad *= 2
+                self.L2Load_tex *= 2
+                self.L2Load *= 2
 
             self.L1Wavefronts_TA *= 1.0 / lc.lupCount
             self.L1Wavefronts_TD *= 1.0 / lc.lupCount
@@ -210,11 +233,10 @@ class MeasuredMetrics:
             self.threadsLaunched *= 32
 
         self.L2ltc = 1
-        self.L2total = 1
 
         self.lups = lc.domain[0] * lc.domain[1] * lc.domain[2] / self.time / 1e9
-        self.tflops = self.lups * lc.flops / 1000
-        self.flopsPerLup = lc.flops
+        self.tflops = self.lups * lc.flopsPerLup / 1000
+        self.flopsPerLup = lc.flopsPerLup
 
         return self
 
@@ -236,6 +258,7 @@ class MeasuredMetrics:
             [
                 ("dfmaCount", ""),
                 ("L1TagWavefronts", ""),
+                ("L2total", "B"),
                 ("L2Load_tex", "B"),
                 ("L2Store", "B"),
                 ("memLoad", "B"),
@@ -265,39 +288,67 @@ class ResultComparer:
         self.p = pred
 
     def columns(self):
-        columns = [
+        columns = []
+
+        if self.m.L2Load < 0:
+
+            columns.append(
+                [
+                    ("p.L1Cycles", ""),
+                    ("p.L1Load", "B"),
+                    ("p.smL1Alloc", "kB"),
+                    ("p.L1LoadEvicts", "B"),
+                    ("p.L2LoadV1", "B"),
+                    ("p.L2LoadV2", "B"),
+                    ("m.L2total", "B"),
+                ]
+            )
+        else:
+            columns.append(
+                [
+                    ("p.L1Cycles", ""),
+                    ("p.L1Load", "B"),
+                    ("p.smL1Alloc", "kB"),
+                    ("p.L1LoadEvicts", "B"),
+                    ("p.L2LoadV1", "B"),
+                    ("p.L2LoadV2", "B"),
+                    ("m.L2Load_tex", "B"),
+                ]
+            )
+        columns.append(
             [
-                ("p.L1Cycles", ""),
-                ("p.L1Load", "B"),
-                ("p.smL1Alloc", "kB"),
-                ("p.L1LoadEvicts", "B"),
-                ("p.L2LoadV1", "B"),
-                ("p.L2LoadV2", "B"),
-                ("m.L2Load_tex", "B"),
-            ],
-            [
+                ("p.L1TagCycles", "cy"),
+                ("m.L1TagWavefronts", "cy"),
                 ("p.memLoadV1", "B"),
                 ("p.memLoadV2", "B"),
                 ("p.memLoadV3", "B"),
                 ("p.memLoadV4", "B"),
                 ("m.memLoad", "B"),
-            ],
+            ]
+        )
+        columns.append(
             [
+                ("p.L1DataPipeCycles", "cy"),
+                ("m.L1DataPipeWavefronts", "cy"),
                 ("p.memLoadOverlap[0]", "B"),
                 ("p.memLoadOverlap[1]", "B"),
-                ("p.waveL2Alloc", "MB"),
                 ("p.memLoadEvicts", "B"),
                 ("p.L2Store", "B"),
                 ("m.L2Store", "B"),
-            ],
+            ]
+        )
+        columns.append(
             [
+                ("p.waveL2Alloc", "MB"),
                 ("p.basic.waveMemOld[0]", "MB"),
                 ("p.basic.waveMemOld[1]", "MB"),
                 ("p.memStoreEvicts", "B"),
                 ("p.memStoreV1", "B"),
                 ("p.memStoreV2", "B"),
                 ("m.memStore", "B"),
-            ],
+            ]
+        )
+        columns.append(
             [
                 ("p.perfL1", "GFlop/s"),
                 ("p.perfL2V2", "GFlop/s"),
@@ -306,8 +357,9 @@ class ResultComparer:
                 ("p.perfPheno", "GFlop/s"),
                 ("m.lups", "GFlop/s"),
                 ("p.limPheno", ""),
-            ],
-        ]
+            ]
+        )
+
         return columns
 
     def __str__(self):

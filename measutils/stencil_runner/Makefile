@@ -3,7 +3,7 @@
 
 HIP_HOME :=  /opt/rocm
 
-LDFLAGS  :=  -L. -lnvrtc -L$(CUDA_HOME)/lib64 -lcuda -lcudart -L$(CUDA_HOME)/extras/CUPTI/lib64 -lcupti -lnvidia-ml -lnvperf_host -lnvperf_target $(shell python3-config --ldflags)
+LDFLAGS  :=  -L.   -lnvrtc -L$(CUDA_HOME)/lib64 -lcuda -lcudart -L$(CUDA_HOME)/extras/CUPTI/lib64 -lcupti -lnvperf_host -lnvperf_target $(shell python3-config --ldflags)
 CUDAFLAGS  :=  -O3 -I$(CUDA_HOME)/include -std=c++2a $(shell python3-config --includes) -I$(CUDA_HOME)/extras/CUPTI/include -Wl,-rpath,$(CUDA_HOME)/extras/CUPTI/lib64/
 
 HOSTNAME = $(shell hostname)
@@ -14,7 +14,15 @@ DEPS := ../gpu_metrics/rocm_metrics/rocm_metrics.hpp
 
 cuda_stencil_runner: cuda_stencil_runner.cpp
 	echo $(HOSTNAME)
-	g++ $< -fPIC -shared -o $@.$(HOSTNAME).so $(LDFLAGS) $(CUDAFLAGS)
+	g++ $< -fPIC -shared -o $@.$(HOSTNAME).so -lnvidia-ml $(LDFLAGS) $(CUDAFLAGS)
+
+cuda_stencil_runner.gracehop1: cuda_stencil_runner.cpp
+	echo $(HOSTNAME)
+	g++ $< -fPIC -shared -o $@.so /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1 $(LDFLAGS) -Wl,-rpath,/usr/lib/aarch64-linux-gnu $(CUDAFLAGS)
+
+cuda_stencil_runner.genoa2: cuda_stencil_runner.cpp
+	echo $(HOSTNAME)
+	g++ $< -fPIC -shared -o $@.so /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 $(LDFLAGS) $(CUDAFLAGS)
 
 cuda_conv_runner.so: cuda_conv_runner.cpp
 	g++ $< -fPIC -shared -o $@ $(LDFLAGS) $(CUDAFLAGS)

@@ -136,24 +136,29 @@ pyMeasureMetricsNBufferKernel(PyObject *metricNames, PyObject *kernelText,
   auto kernel = buildKernel((char *)PyUnicode_1BYTE_DATA(kernelText),
                             (char *)PyUnicode_1BYTE_DATA(funcName));
 
-  measureMetricsStart(metricNameVector);
-  checkCuErrors(cuLaunchKernel(kernel,
-                               PyLong_AsLong(PyTuple_GetItem(blockCount, 0)),
-                               PyLong_AsLong(PyTuple_GetItem(blockCount, 1)),
-                               PyLong_AsLong(PyTuple_GetItem(blockCount, 2)),
-                               PyLong_AsLong(PyTuple_GetItem(blockSize, 0)),
-                               PyLong_AsLong(PyTuple_GetItem(blockSize, 1)),
-                               PyLong_AsLong(PyTuple_GetItem(blockSize, 2)), 0,
-                               NULL, (void **)bufferPointersPointers, 0));
-  auto values = measureMetricsStop();
+  vector<MeasurementSeries> valueSeries(metricNameVector.size());
 
-  // std::cout << values.size();
+  for (int i = 0; i < 11; i++) {
+    measureMetricsStart(metricNameVector);
+    checkCuErrors(cuLaunchKernel(kernel,
+                                 PyLong_AsLong(PyTuple_GetItem(blockCount, 0)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockCount, 1)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockCount, 2)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockSize, 0)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockSize, 1)),
+                                 PyLong_AsLong(PyTuple_GetItem(blockSize, 2)),
+                                 0, NULL, (void **)bufferPointersPointers, 0));
+    auto values = measureMetricsStop();
+    for (int v = 0; v < values.size(); v++) {
+      valueSeries[v].add(values[v]);
+    }
+  }
 
   PyGILState_STATE gstate = PyGILState_Ensure();
 
   PyObject *result = PyList_New(0);
-  for (auto value : values) {
-    PyList_Append(result, PyFloat_FromDouble(value));
+  for (auto value : valueSeries) {
+    PyList_Append(result, PyFloat_FromDouble(value.median()));
   }
 
   PyGILState_Release(gstate);
@@ -165,11 +170,15 @@ extern "C" PyObject *pyGetDeviceName(PyObject *deviceNumber) {
 
   PyGILState_STATE gstate = PyGILState_Ensure();
   int deviceId = PyLong_AsLong(deviceNumber);
-  // GPU_ERROR(cudaSetDevice(deviceId));
+  GPU_ERROR(cudaSetDevice(deviceId));
 
   cudaDeviceProp prop;
   GPU_ERROR(cudaGetDeviceProperties(&prop, deviceId));
   std::string deviceName = prop.name;
+
+  // if (deviceName == "AMD Instinct MI300A" ||
+  //     deviceName == "AMD Instinct MI300X")
+  //   deviceName.append("-CPX");
 
   PyObject *result = PyUnicode_FromString(deviceName.c_str());
 
