@@ -1,20 +1,12 @@
 
 
 #include "hip/hip_runtime.h"
+#include <dlfcn.h>
 #include <hsa/hsa.h>
 #include <iostream>
 #include <rocprofiler.h>
-#include <unistd.h>
-#include <vector>
-
-#include <dlfcn.h>
-#include <hsa/hsa.h>
 #include <string.h>
 #include <unistd.h>
-
-#include <atomic>
-#include <iostream>
-#include <sstream>
 #include <vector>
 
 #define PUBLIC_API __attribute__((visibility("default")))
@@ -238,16 +230,21 @@ std::vector<double> measureMetricsStop() {
       // std::cout << "\n";
     }
   }
-  for (auto a : values)
-    std::cout << a << "\n";
+  // for (auto a : values)
+  //   std::cout << a << "\n";
   context_queue.clear();
   return values;
 }
 
 void measureDRAMBytesStart() {
-  if (get_agent_gfx() == 90 || get_agent_gfx() == 942) {
+  switch (get_agent_gfx()) {
+  case 90:
+  case 908:
+  case 942:
     measureMetricsStart({"FETCH_SIZE", "WRITE_SIZE"});
-  } else {
+    break;
+  default:
+    std::cout << "Unsupported gfx: " << get_agent_gfx() << "\n";
     measureMetricsStart(
         {"GL2C_EA_RDREQ_64B_sum", "GL2C_EA_WRREQ_64B_sum", "Wavefronts"});
   }
@@ -255,10 +252,18 @@ void measureDRAMBytesStart() {
 
 std::vector<double> measureDRAMBytesStop() {
   auto values = measureMetricsStop();
-  if (get_agent_gfx() == 90 || get_agent_gfx() == 942) {
+  switch (get_agent_gfx()) {
+  case 90:
+
     values[0] *= 1024;
     values[1] *= 1024;
-  } else {
+    break;
+  case 942:
+    values[0] *= 2 * 1024;
+    values[1] *= 1024;
+    break;
+  default:
+    std::cout << "Unsupported gfx: " << get_agent_gfx() << "\n";
     values[0] *= 64;
     values[1] *= 64;
   }
@@ -266,19 +271,34 @@ std::vector<double> measureDRAMBytesStop() {
 }
 
 void measureL2BytesStart() {
-  if (get_agent_gfx() == 90 || get_agent_gfx() == 942) {
+  switch (get_agent_gfx()) {
+  case 90:
+  case 942:
     measureMetricsStart({"TCP_TCC_READ_REQ_sum", "TCP_TCC_WRITE_REQ_sum"});
-  } else {
+    break;
+  case 908:
+    measureMetricsStart({"TCC_HIT_sum", "TCC_MISS_sum"});
+    break;
+  default:
+    std::cout << "Unsupported gfx: " << get_agent_gfx() << "\n";
     measureMetricsStart({"GL2C_HIT_sum", "GL2C_MISS_sum", "Wavefronts"});
   }
 }
 
 std::vector<double> measureL2BytesStop() {
   auto values = measureMetricsStop();
-  if (get_agent_gfx() == 90 || get_agent_gfx() == 942) {
+  switch (get_agent_gfx()) {
+  case 90:
     values[0] *= 64;
     values[1] *= 64;
-  } else {
+    break;
+  case 942:
+    values[0] *= 2 * 64;
+    values[1] *= 64;
+    break;
+
+  default:
+    std::cout << "Unsupported gfx: " << get_agent_gfx() << "\n";
     values[0] *= 64;
     values[1] *= 64;
   }
