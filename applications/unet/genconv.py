@@ -218,6 +218,8 @@ def getConvWarpSpeedKernel(
         storeFields,
         registers=128,
         flops=output_channels * c_in_per_thread * x_per_thread * 3 * 3 * 2,
+        flins=output_channels * c_in_per_thread * x_per_thread * 3 * 3,
+        fp_type=4,
     )
 
     return kernel
