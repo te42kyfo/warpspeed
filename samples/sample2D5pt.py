@@ -6,42 +6,42 @@ import sys
 sys.path.append("../warpspeed/")
 
 from predict_metrics import *
-import sympy as sp
 from warpspeedkernel import *
 
 
-blockSize = (512, 1, 1)
-domain = (15000, 15000, 1)
-blockingFactors = (1, 1, 1)
-device = DeviceAmpere()
+device = DeviceAmpereA100_80GB()
 
 kernel = WarpspeedKernel(
     loadFields=[
         Field(
-            "A",
-            [
+            name="A",
+            addresses=[
                 ("tidx", "tidy", "0"),
                 ("tidx+1", "tidy", "0"),
                 ("tidx-1", "tidy", "0"),
                 ("tidx", "tidy+1", "0"),
                 ("tidx", "tidy-1", "0"),
             ],
-            8,
-            domain,
-            1,
+            datatype=8,
+            dimensions=(15002, 15002, 1),
+            alignment=1,
         )
     ],
-    storeFields=[Field("B", [("tidx", "tidy", "0")], 8, domain, 1)],
+    storeFields=[Field("B", [("tidx", "tidy", "0")], 8, (15002, 15002, 1), 1)],
     registers=32,
-    flops=4,
+    flops=5,
 )
 
 lc = LaunchConfig.compute(
-    kernel, blockSize, domain, blockingFactors, device, (domain, domain)
+    kernel=kernel,
+    block=(512, 1, 1),
+    domain=(15000, 15000, 1, 1),
+    blocking_factors=(1, 1, 1),
+    device=device,
 )
 basic = BasicMetrics.compute(lc, device, kernel)
 pred = DerivedMetrics(lc, basic, device)
 
-
+print(lc)
 print(basic)
 print(pred)

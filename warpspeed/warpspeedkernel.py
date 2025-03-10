@@ -115,5 +115,3 @@ class WarpspeedKernel:
         self.loadFields = loadFields
         self.storeFields = storeFields
         self.fp_type = fp_type
-        self.flops = flops
-        self.flins = flins

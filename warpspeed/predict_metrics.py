@@ -25,7 +25,7 @@ class LaunchConfig:
         domain,
         blocking_factors,
         device,
-        buffers,
+        buffers=[],
         alignmentBytes=0,
     ):
         self = LaunchConfig()
@@ -52,7 +52,7 @@ class LaunchConfig:
             self.blocksPerSM * device.smCount, self.grid
         )
 
-        self.truncatedWaveSize = tuple(min(4, c) for c in self.waveSize)
+        self.truncatedWaveSize = tuple(min(8, c) for c in self.grid)
         self.threadsPerBlock = block[0] * block[1] * block[2]
         self.lupsPerThread = reduce(mul, blocking_factors)
 
@@ -79,17 +79,30 @@ class LaunchConfig:
     def __str__(self):
         columns = [
             [("block", ""), ("grid", ""), ("waveSize", ""), ("truncatedWaveSize", "")],
-            [("blocking_factors", ""), ("threadsPerBlock", ""), ("blocksPerSM", "")],
+            [
+                ("threadsPerBlock", ""),
+                ("blocksPerSM", ""),
+                ("blocking_factors", ""),
+                ("flopsPerLup", ""),
+                ("flinsPerLup", ""),
+            ],
         ]
         return columnPrint(self, columns)
 
 
 class BasicMetrics:
-    def compute(lc, device, kernel):
+    def compute(lc, device, kernel, verbose=False):
         self = BasicMetrics()
 
-        if device.L1Model == "CDNA":
+        if device.L1Model == "CDNA" or device.L1Model == "RDNA":
+
             kernel.fuseAccesses()
+            if verbose:
+                print("unfused")
+                for f in kernel.loadFields:
+                    for a in f.linearExpressions:
+                        print(a)
+            print()
 
         self.fieldL1Cycles = getL1Cycles(
             lc.block,
@@ -97,6 +110,8 @@ class BasicMetrics:
             kernel.loadFields + kernel.storeFields,
             device,
         )
+        if verbose:
+            print(self.fieldL1Cycles)
 
         self.L1DataPipeCycles, self.L1TagCycles, self.L1Cycles, self.L1CLCount = (
             self.fieldL1Cycles["total"]
@@ -246,14 +261,14 @@ class BasicMetrics:
 
 class DerivedMetrics:
 
-    popt_L1Rover = (1, 4.1, 0.9)
-    popt_WaveOverlapRover0 = (1.0, 15.5, 2.2)
-    popt_WaveOverlapRover1 = (1.0, 15.5, 2.2)
-    popt_L2Rover = (1.0, 6.4, 0.8)
-    popt_L2StoreRover = (1.0, 3.2, 0.7)
+    popt_L1Rover = (0.66, 6.77, 1.45)
+    popt_WaveOverlapRover0 = (1.0, 37.1, 3.2)
+    popt_WaveOverlapRover1 = (1.0, 37.1, 3.2)
+    popt_L2Rover = (0.2, 7.56, 0.67)
+    popt_L2StoreRover = (0.38, 3.79, 0.55)
 
     def rover(a, b, c, coverage):
-        return a * np.exp(-b * np.exp(-c * coverage))
+        return a * np.exp(-b * np.exp(-c * (coverage)))
 
     def L1Rover(L1oversubscription):
         return DerivedMetrics.rover(*(DerivedMetrics.popt_L1Rover), L1oversubscription)
@@ -312,7 +327,9 @@ class DerivedMetrics:
         self.smL1Alloc = self.basic.blockL1LoadAlloc  # *  self.lc.blocksPerSM
 
         # Estimate L1 capacity evictions of loads, using coverage as hitrate proxy
-        self.L1coverage = self.smL1Alloc / self.device.sizeL1
+        self.L1coverage = (
+            self.smL1Alloc / math.sqrt(self.device.sizeL1) / math.sqrt(128 * 1024)
+        )
 
         # Remap block quantity to thread balance
         self.L1Load = self.basic.blockL1Load / self.lc.threadsPerBlock / lupsPerThread
@@ -384,7 +401,7 @@ class DerivedMetrics:
 
         self.fieldMemLoadOverlap = {
             fieldName: (
-                v["VOverlapY"] / self.basic.waveValidCells / lupsPerThread,
+                (v["VOverlapY"]) / self.basic.waveValidCells / lupsPerThread,
                 v["VOverlapZ"] / self.basic.waveValidCells / lupsPerThread,
             )
             for (fieldName, v) in self.basic.fieldWaveMemVolumes.items()
@@ -444,7 +461,9 @@ class DerivedMetrics:
         )
 
         # compute the L2 cache coverage of the current wave's accesses
-        self.L2Oversubscription = self.waveL2Alloc / self.device.sizeL2
+        self.L2Oversubscription = (
+            self.waveL2Alloc / math.sqrt(self.device.sizeL2) / 2 / 1024
+        )
 
         # estimate partially written cache lines evicted before completion using L2 current coverage
         self.memStoreEvicts = max(
