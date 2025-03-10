@@ -19,9 +19,11 @@ class DeviceVolta(Device):
 
     L1BankWidth = 128
     CLAllocationSize = 128
+
     CLFetchSize = 32
     CLWriteSize = 32
-    DRAMFetchSize = 32
+    DRAMFetchSize = 64
+    DRAMWriteSize = 32
 
     warpSize = 32
 
@@ -53,6 +55,11 @@ class DeviceAmpere(DeviceVolta):
     sizeL2 = 20 * 1024 * 1024
     sizeL1 = 192 * 1024
     displayName = "Ampere"
+
+    CLFetchSize = 32
+    CLWriteSize = 32
+    DRAMFetchSize = 64
+    DRAMWriteSize = 32
 
 
 class DeviceAmpereA100_40GB(DeviceAmpere):
@@ -87,6 +94,11 @@ class DeviceAmpereA40(DeviceAmpere):
     name = "NVIDIA A40"
     displayName = "A40"
 
+    CLFetchSize = 32
+    CLWriteSize = 32
+    DRAMFetchSize = 32
+    DRAMWriteSize = 32
+
 
 class DeviceL40(DeviceAmpereA40):
     clock = 2.49
@@ -100,19 +112,25 @@ class DeviceL40(DeviceAmpereA40):
     memBW = 800
     L2BW = 4300
 
+    CLFetchSize = 32
+    CLWriteSize = 32
+    DRAMFetchSize = 32
+    DRAMWriteSize = 32
+
     displayName = "L40"
     name = "NVIDIA L40"
 
 
 class DeviceL40s(DeviceL40):
     clock = 2.52
-    smCount = 142
-
-    sizeL2 = 96 * 1024 * 1024
-    sizeL1 = 128 * 1024
 
     memBW = 780
     L2BW = 4300
+
+    CLFetchSize = 32
+    CLWriteSize = 32
+    DRAMFetchSize = 64
+    DRAMWriteSize = 32
 
     displayName = "L40s"
     name = "NVIDIA L40S"
@@ -122,13 +140,18 @@ class DeviceHopperH200(DeviceAmpere):
     clock = 1.98
     smCount = 132
     memBW = 3200
-    L2BW = 6900
+    L2BW = 8400
     name = "H200"
     displayName = "GH200"
     name = "NVIDIA GH200 480GB"
 
     fp64CycleSM = 64
     fp32CycleSM = 128
+
+    CLFetchSize = 32
+    CLWriteSize = 32
+    DRAMFetchSize = 64
+    DRAMWriteSize = 32
 
     sizeL1 = 256 * 1024
     sizeL2 = 30 * 1024 * 1024
@@ -137,10 +160,12 @@ class DeviceHopperH200(DeviceAmpere):
 class DeviceCDNA(Device):
     L1BankWidth = 64
     CLAllocationSize = 64
+
     CLFetchSize = 64
     CLWriteSize = 64
 
-    DRAMFetchSize = 32
+    DRAMFetchSize = 64
+    DRAMWriteSize = 64
 
     warpSize = 64
 
@@ -193,7 +218,6 @@ class DeviceMI300(DeviceCDNA):
 
     CLAllocationSize = 128
     CLFetchSize = 128
-    CLWriteSize = 64
 
     L2BW = 13700
     memBW = 4000
@@ -233,7 +257,8 @@ class DeviceRDNA(Device):
     CLFetchSize = 128
     CLWriteSize = 64
 
-    DRAMFetchSize = 32
+    DRAMFetchSize = 64
+    DRAMWriteSize = 64
 
     warpSize = 32
 
