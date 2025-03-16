@@ -14,7 +14,7 @@ domain = (1024, 1024, 256)
 blockingFactors = (1, 1, 1)
 
 
-device = DeviceAmpere()
+device = DeviceAmpereA100_80GB()
 
 
 xySizes = [64, 256, 1024]
