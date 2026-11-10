@@ -107,8 +107,11 @@ class WarpspeedKernel:
     def __init__(self, loadFields, storeFields, registers, flops=0, flins=0, fp_type=8):
         self.registers = registers
 
+        # flins (FLoating point INStructions) assumes FMA
         if flins == 0:
             self.flins = int(math.ceil(flops / 2))
+        else:
+            self.flins = flins
 
         self.flops = flops
 
